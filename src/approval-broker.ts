@@ -4,7 +4,7 @@ import type {
   Capability,
   CapabilityGrant,
   CapabilityRequest,
-  ProviderId,
+  ProviderLabel,
 } from "./capability-policy.js";
 
 export interface PendingApproval {
@@ -13,12 +13,14 @@ export interface PendingApproval {
   requestedAt: number;
   expiresAt: number;
   status: "pending" | "approved" | "denied" | "expired";
+  grantId?: string;
 }
 
 export interface HumanApprovalInput {
   approvedBy: string;
   approvalChannel: "local-ui" | "operator-cli" | "hardware";
-  provider: ProviderId;
+  subjectId: string;
+  providerLabel?: ProviderLabel;
   projectId: string;
   capabilities: Capability[];
   paths?: string[];
@@ -67,8 +69,18 @@ export class ApprovalBroker {
     if (pending.status !== "pending") {
       throw new Error(`Approval request is already ${pending.status}`);
     }
-    if (input.provider !== pending.request.provider || input.projectId !== pending.request.projectId) {
-      throw new Error("Approval provider/project must match the pending request");
+    if (
+      input.subjectId !== pending.request.subjectId ||
+      input.projectId !== pending.request.projectId
+    ) {
+      throw new Error("Approval subject/project must match the pending request");
+    }
+    if (
+      input.providerLabel !== undefined &&
+      pending.request.providerLabel !== undefined &&
+      input.providerLabel !== pending.request.providerLabel
+    ) {
+      throw new Error("Approval provider label must match the pending request");
     }
     if (!input.capabilities.includes(pending.request.capability)) {
       throw new Error("Approval must include the requested capability");
@@ -83,7 +95,8 @@ export class ApprovalBroker {
       grantId: randomUUID(),
       issuedBy: "human",
       approvalChannel: input.approvalChannel,
-      provider: input.provider,
+      subjectId: input.subjectId,
+      providerLabel: input.providerLabel,
       projectId: input.projectId,
       capabilities: [...new Set(input.capabilities)],
       paths: input.paths ? [...new Set(input.paths)] : undefined,
@@ -96,6 +109,7 @@ export class ApprovalBroker {
     };
 
     pending.status = "approved";
+    pending.grantId = grant.grantId;
     this.grants.set(grant.grantId, grant);
     return grant;
   }
@@ -121,13 +135,30 @@ export class ApprovalBroker {
     return grant;
   }
 
+  revokeBySubject(grantId: string, subjectId: string, now = Date.now()): CapabilityGrant {
+    const grant = this.grants.get(grantId);
+    if (!grant || grant.subjectId !== subjectId) {
+      throw new Error("Unknown grant");
+    }
+    grant.revokedAt = now;
+    return grant;
+  }
+
   activeGrants(now = Date.now()): CapabilityGrant[] {
     return [...this.grants.values()].filter(
       (grant) => grant.revokedAt === undefined && grant.expiresAt > now && grant.uses < grant.maxUses,
     );
   }
 
+  activeGrantsForSubject(subjectId: string, now = Date.now()): CapabilityGrant[] {
+    return this.activeGrants(now).filter((grant) => grant.subjectId === subjectId);
+  }
+
   getPending(requestId: string): PendingApproval | undefined {
     return this.pending.get(requestId);
+  }
+
+  getGrant(grantId: string): CapabilityGrant | undefined {
+    return this.grants.get(grantId);
   }
 }
