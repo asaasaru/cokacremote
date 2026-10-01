@@ -4,6 +4,7 @@ import type {
   Capability,
   CapabilityGrant,
   CapabilityRequest,
+  CommandSpec,
   ProviderLabel,
 } from "./capability-policy.js";
 
@@ -25,6 +26,7 @@ export interface HumanApprovalInput {
   capabilities: Capability[];
   paths?: string[];
   commands?: string[];
+  commandSpecs?: CommandSpec[];
   networkTargets?: string[];
   ttlMs: number;
   maxUses: number;
@@ -101,6 +103,12 @@ export class ApprovalBroker {
       capabilities: [...new Set(input.capabilities)],
       paths: input.paths ? [...new Set(input.paths)] : undefined,
       commands: input.commands ? [...new Set(input.commands)] : undefined,
+      commandSpecs: input.commandSpecs
+        ? input.commandSpecs.map((spec) => ({
+            executable: spec.executable,
+            args: spec.args ? [...spec.args] : [],
+          }))
+        : undefined,
       networkTargets: input.networkTargets ? [...new Set(input.networkTargets)] : undefined,
       issuedAt: now,
       expiresAt: now + ttlMs,
