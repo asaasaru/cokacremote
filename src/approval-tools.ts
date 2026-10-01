@@ -64,7 +64,8 @@ export function registerApprovalTools(
         providerLabel: z.string().min(1).max(64).optional().describe("Optional human-readable provider label. Authorization is bound to the authenticated client ID, not this label."),
         capability: capabilitySchema,
         path: z.string().optional().describe("Exact host or workspace path involved in the requested capability, when applicable."),
-        commandExecutable: z.string().optional().describe("Executable name or path to constrain an execution capability, when applicable."),
+        commandExecutable: z.string().regex(/^[A-Za-z0-9._+-]+$/).optional().describe("Bare executable name only; paths are rejected. The host bridge maps approved names to trusted binaries."),
+        commandArgs: z.array(z.string().max(2000)).max(64).optional().describe("Exact argument vector to bind to an execution approval. Different arguments require a different approval."),
         networkTarget: z.string().optional().describe("Exact host:port target to constrain a network capability, when applicable."),
         reason: z.string().max(1000).optional().describe("Short explanation shown to the human operator for this capability request."),
       },
@@ -79,19 +80,23 @@ export function registerApprovalTools(
         capability,
         path,
         commandExecutable,
+        commandArgs,
         networkTarget,
         reason,
       },
       extra,
     ) =>
       runTool(() => {
+        if (commandArgs?.length && !commandExecutable) {
+          throw new Error("commandArgs requires commandExecutable");
+        }
         const request: CapabilityRequest = {
           capability: capability as Capability,
           subjectId: subjectId(extra),
           providerLabel,
           projectId,
           path,
-          command: commandExecutable ? { executable: commandExecutable } : undefined,
+          command: commandExecutable ? { executable: commandExecutable, args: commandArgs ?? [] } : undefined,
           networkTarget,
           reason,
         };
