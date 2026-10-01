@@ -129,6 +129,51 @@ describe("CapabilityPolicyEngine", () => {
     }, now).decision).toBe("DENY");
   });
 
+  it("rejects executable paths even when the basename is allowlisted", () => {
+    const g = grant({
+      capabilities: ["host.exec"],
+      commands: ["git"],
+      paths: ["/Users/vicmac/DevMac/Biz/TVauto"],
+    });
+    const engine = new CapabilityPolicyEngine(pineTvautoProfile, [g]);
+    expect(engine.evaluate({
+      capability: "host.exec",
+      subjectId,
+      providerLabel,
+      projectId,
+      path: "/Users/vicmac/DevMac/Biz/TVauto",
+      command: { executable: "/tmp/git", args: ["status"] },
+    }, now).decision).toBe("APPROVAL_REQUIRED");
+  });
+
+  it("binds an exec grant to the exact approved argv", () => {
+    const g = grant({
+      capabilities: ["host.exec"],
+      commands: ["git"],
+      commandSpecs: [{ executable: "git", args: ["status", "--short"] }],
+      paths: ["/Users/vicmac/DevMac/Biz/TVauto"],
+    });
+    const engine = new CapabilityPolicyEngine(pineTvautoProfile, [g]);
+
+    expect(engine.evaluate({
+      capability: "host.exec",
+      subjectId,
+      providerLabel,
+      projectId,
+      path: "/Users/vicmac/DevMac/Biz/TVauto",
+      command: { executable: "git", args: ["status", "--short"] },
+    }, now).decision).toBe("ALLOW");
+
+    expect(engine.evaluate({
+      capability: "host.exec",
+      subjectId,
+      providerLabel,
+      projectId,
+      path: "/Users/vicmac/DevMac/Biz/TVauto",
+      command: { executable: "git", args: ["-C", "/tmp", "status"] },
+    }, now).decision).toBe("APPROVAL_REQUIRED");
+  });
+
   it("rejects expired and exhausted grants", () => {
     const expired = grant({ expiresAt: now });
     const exhausted = grant({ grantId: "g2", uses: 2, maxUses: 2 });
