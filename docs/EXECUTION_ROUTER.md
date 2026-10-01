@@ -92,7 +92,7 @@ The route is disabled unless `MCP_BACKEND_HEALTH_KEY` is configured. Reports mus
 
 The HTTP route feeds observations through `classifyBackendObservation()`, updates `BackendHealthRegistry`, and advances the backend circuit breaker. It is intentionally separate from MCP authentication and capability grants.
 
-## Capability enforcement at the host boundary
+## MCP capability enforcement boundary
 
 Routing is not the security boundary. For managed deployments, set:
 
@@ -107,12 +107,15 @@ MCP_CAPABILITY_PROJECT=vic-tvauto
 - file reads/writes are checked against the authenticated MCP client, configured project/profile, canonicalized real path (including symlink resolution), and active grants before touching the host;
 - destructive move/remove operations require a permitted workspace write or a `destructive.fs` grant;
 - `exec_command` and `run_script` are disabled because arbitrary shell/script text cannot be safely represented by an exact argv grant;
-- `exec_argv` directly spawns one bare executable with an explicit argument vector and no shell expansion;
+- `exec_argv` directly spawns one bare executable with an explicit argument vector and no shell expansion; in bounded mode every process start, including under `/work/sandbox`, requires a matching human-issued exact-argv grant;
 - `apply_patch` is disabled because a unified patch can reference paths outside the approved root;
 - process sessions started by `exec_argv` are bound to the authenticated subject for follow-up reads/termination; custom `env`, initial stdin, and interactive `write_stdin` are disabled in bounded mode because those channels are not part of the exact argv grant;
+- bounded child processes receive only a small non-secret environment allowlist (`PATH`, home/temp/locale/shell/user and required Windows equivalents) instead of inheriting the MCP server environment;
 - copy/move multi-path authorization is preflighted atomically so a grant is not consumed when another required path/capability is blocked;
 - `execution_route` is a non-consuming preview; the actual file/exec action consumes the bounded grant.
 
 The `pine-tvauto` profile keeps TradingView and TVauto host access approval-bound. Its resilient CDP target set is limited to `127.0.0.1:9229`, `:9333`, and `:9222`; the REST bridge is limited to `127.0.0.1:5300`. TVauto destructive filesystem and package-install actions are also approval-bound rather than permanently denied.
 
 `GET /health` exposes `capabilityMode`, `capabilityProfileId`, `capabilityProjectId`, and reports `unrestrictedHostAccess=false` when bounded enforcement is active.
+
+The capability gate controls whether MCP operations and process starts are authorized. It is **not** a kernel/syscall sandbox for an already-approved child process. Keep bounded execution inside the existing coka/AgentCore OS or container isolation boundary, and do not mount host secrets or unrestricted host roots into that execution environment.
