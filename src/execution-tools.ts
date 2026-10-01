@@ -263,10 +263,11 @@ export function registerExecutionTools(
         };
 
         const profile = getPolicyProfile(profileId);
-        const policy = new CapabilityPolicyEngine(
+        const policyEngine = new CapabilityPolicyEngine(
           profile,
           broker.activeGrants(),
-        ).evaluatePreview(request);
+        );
+        const policy = policyEngine.evaluatePreview(request);
 
         if (policy.decision === "DENY") {
           return {
@@ -304,10 +305,17 @@ export function registerExecutionTools(
 
         if ((route.decision === "ROUTE" || route.decision === "PROBE") && route.backend) {
           const adapter = EXECUTION_ADAPTERS[route.backend];
+          const externalHandoff = route.backend !== "coka_local";
+          const handoffPolicy = externalHandoff
+            ? policyEngine.evaluate(request)
+            : policy;
+          if (handoffPolicy.decision !== "ALLOW") {
+            throw new Error("Capability became unavailable before external handoff issuance");
+          }
           return {
             decision: route.decision,
             profileId,
-            policy,
+            policy: handoffPolicy,
             route,
             handoff: {
               backend: route.backend,
@@ -321,7 +329,9 @@ export function registerExecutionTools(
               actionDigest: actionDigest(request),
               probeRequired: route.decision === "PROBE",
               nextAction: nextActionForBackend(route.backend),
-              grantConsumption: "at_executor_boundary",
+              grantConsumption: externalHandoff
+                ? "at_handoff_issuance"
+                : "at_executor_boundary",
             },
           };
         }
