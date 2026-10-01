@@ -1,0 +1,211 @@
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import * as z from "zod/v4";
+
+import type { ApprovalBroker } from "./approval-broker.js";
+import {
+  CapabilityPolicyEngine,
+  type Capability,
+  type CapabilityRequest,
+} from "./capability-policy.js";
+import {
+  BackendHealthRegistry,
+  type BackendId,
+} from "./backend-health.js";
+import { BackendCircuitBreaker } from "./circuit-breaker.js";
+import type { AppConfig } from "./config.js";
+import { EXECUTION_ADAPTERS, type ExecutionTaskKind } from "./execution-adapters.js";
+import { ExecutionRouter } from "./execution-router.js";
+import {
+  FallbackPolicy,
+  type ExecutionMode,
+} from "./fallback-policy.js";
+import { getPolicyProfile } from "./policy-profiles.js";
+import { RecoveryWorkflow } from "./recovery-workflow.js";
+import { runTool } from "./tool-result.js";
+import { TOOL_ANNOTATIONS, toolAuthMetadata } from "./tool-metadata.js";
+
+const backendSchema = z.enum([
+  "agentcore.antigravity",
+  "agentcore.native",
+  "remote_desktop",
+  "tv_bridge",
+  "coka_local",
+]);
+
+const taskSchema = z.enum([
+  "project.read",
+  "project.write",
+  "project.test",
+  "project.exec",
+  "agentcore.canary",
+  "agentcore.repair",
+  "tradingview.compile",
+  "tradingview.backtest",
+  "tradingview.gui",
+  "coka.sandbox",
+]);
+
+const modeSchema = z.enum(["auto", "cpaa", "rdc", "tvbridge", "local"]);
+
+const capabilitySchema = z.enum([
+  "workspace.read",
+  "workspace.write",
+  "workspace.exec",
+  "host.read",
+  "host.write",
+  "host.exec",
+  "tradingview.app",
+  "tradingview.cdp",
+  "loopback.http",
+  "package.install",
+  "destructive.fs",
+  "real_trading",
+  "secrets.read",
+  "docker.socket",
+  "browser.personal_profile",
+  "host.unrestricted",
+]);
+
+function subjectId(extra: { authInfo?: { clientId?: string } }): string {
+  const value = extra.authInfo?.clientId?.trim();
+  if (!value) {
+    throw new Error("Execution routing requires an authenticated MCP client identity");
+  }
+  return value;
+}
+
+export interface ExecutionToolServices {
+  health: BackendHealthRegistry;
+  circuits: BackendCircuitBreaker;
+  fallback: FallbackPolicy;
+  recovery: RecoveryWorkflow;
+}
+
+export function registerExecutionTools(
+  server: McpServer,
+  config: AppConfig,
+  broker: ApprovalBroker,
+  services: ExecutionToolServices,
+): void {
+  const authMetadata = toolAuthMetadata(config);
+
+  server.registerTool(
+    "execution_status",
+    {
+      title: "Read execution backend status",
+      description:
+        "Read verified backend health, circuit state, and adapter capabilities. This tool is read-only and cannot mark a backend healthy.",
+      inputSchema: {},
+      annotations: TOOL_ANNOTATIONS.readOnlyClosed,
+      _meta: authMetadata,
+    },
+    async () =>
+      runTool(() => ({
+        backends: services.health.list().map((record) => ({
+          ...record,
+          circuit: services.circuits.snapshot(record.backend),
+          adapter: EXECUTION_ADAPTERS[record.backend],
+        })),
+      })),
+  );
+
+  server.registerTool(
+    "execution_route",
+    {
+      title: "Plan a policy-safe execution route",
+      description:
+        "Evaluate the authenticated caller against the capability policy, then select an eligible backend from verified health. It never creates approvals, executes work, or lets callers self-report backend health.",
+      inputSchema: {
+        profileId: z.string().default("pine-tvauto"),
+        projectId: z.string().min(1).max(128),
+        providerLabel: z.string().min(1).max(64).optional(),
+        capability: capabilitySchema,
+        path: z.string().optional(),
+        commandExecutable: z.string().regex(/^[A-Za-z0-9._+-]+$/).optional(),
+        commandArgs: z.array(z.string().max(2000)).max(64).optional(),
+        networkTarget: z.string().optional(),
+        task: taskSchema,
+        mode: modeSchema.default("auto"),
+      },
+      annotations: TOOL_ANNOTATIONS.readOnlyClosed,
+      _meta: authMetadata,
+    },
+    async (
+      {
+        profileId,
+        projectId,
+        providerLabel,
+        capability,
+        path,
+        commandExecutable,
+        commandArgs,
+        networkTarget,
+        task,
+        mode,
+      },
+      extra,
+    ) =>
+      runTool(() => {
+        if (commandArgs?.length && !commandExecutable) {
+          throw new Error("commandArgs requires commandExecutable");
+        }
+
+        const request: CapabilityRequest = {
+          capability: capability as Capability,
+          subjectId: subjectId(extra),
+          providerLabel,
+          projectId,
+          path,
+          command: commandExecutable
+            ? { executable: commandExecutable, args: commandArgs ?? [] }
+            : undefined,
+          networkTarget,
+        };
+        const profile = getPolicyProfile(profileId);
+        const policy = new CapabilityPolicyEngine(profile, broker.activeGrants()).evaluate(request);
+        const router = new ExecutionRouter(
+          services.health,
+          services.circuits,
+          services.fallback,
+        );
+        const route = router.route({
+          task: task as ExecutionTaskKind,
+          mode: mode as ExecutionMode,
+          policyDecision: policy.decision,
+        });
+        return {
+          profileId,
+          policy: {
+            decision: policy.decision,
+            reason: policy.reason,
+            grantId: policy.grantId,
+            remainingUses: policy.remainingUses,
+          },
+          route,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "execution_recovery",
+    {
+      title: "Read backend recovery plan",
+      description:
+        "Read the deterministic recovery plan for a backend's current verified health state. It performs no repair and grants no capability.",
+      inputSchema: {
+        backend: backendSchema,
+      },
+      annotations: TOOL_ANNOTATIONS.readOnlyClosed,
+      _meta: authMetadata,
+    },
+    async ({ backend }) =>
+      runTool(() => {
+        const record = services.health.get(backend as BackendId);
+        return {
+          health: record,
+          circuit: services.circuits.snapshot(record.backend),
+          recovery: services.recovery.plan(record),
+        };
+      }),
+  );
+}
