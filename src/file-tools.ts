@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
+import { CapabilityGate, type ToolAuthExtra } from "./capability-gate.js";
 import type { AppConfig } from "./config.js";
 import { FileService } from "./file-service.js";
 import { runTool } from "./tool-result.js";
@@ -33,8 +34,10 @@ export function registerFileTools(
   server: McpServer,
   config: AppConfig,
   files: FileService,
+  capabilityGate: CapabilityGate,
 ): void {
   const authMetadata = toolAuthMetadata(config);
+  const resolved = (inputPath: string, cwd?: string): string => files.resolve(inputPath, cwd);
 
   server.registerTool(
     "list_directory",
@@ -77,16 +80,17 @@ export function registerFileTools(
       annotations: TOOL_ANNOTATIONS.readOnlyClosed,
       _meta: authMetadata,
     },
-    async ({ path, cwd, recursive, maxDepth, maxEntries, includeHidden, includeMetadata }) =>
-      runTool(() =>
-        files.listDirectory(path, cwd, {
+    async ({ path, cwd, recursive, maxDepth, maxEntries, includeHidden, includeMetadata }, extra) =>
+      runTool(() => {
+        capabilityGate.authorizeRead(extra as ToolAuthExtra, resolved(path, cwd));
+        return files.listDirectory(path, cwd, {
           recursive,
           maxDepth,
           maxEntries,
           includeHidden,
           includeMetadata,
-        }),
-      ),
+        });
+      }),
   );
 
   server.registerTool(
@@ -98,7 +102,11 @@ export function registerFileTools(
       annotations: TOOL_ANNOTATIONS.readOnlyClosed,
       _meta: authMetadata,
     },
-    async ({ path, cwd }) => runTool(() => files.getInfo(path, cwd)),
+    async ({ path, cwd }, extra) =>
+      runTool(() => {
+        capabilityGate.authorizeRead(extra as ToolAuthExtra, resolved(path, cwd));
+        return files.getInfo(path, cwd);
+      }),
   );
 
   server.registerTool(
@@ -133,8 +141,11 @@ export function registerFileTools(
       annotations: TOOL_ANNOTATIONS.readOnlyClosed,
       _meta: authMetadata,
     },
-    async ({ path, cwd, offset, maxBytes, encoding }) =>
-      runTool(() => files.readFileChunk(path, cwd, offset, maxBytes, encoding)),
+    async ({ path, cwd, offset, maxBytes, encoding }, extra) =>
+      runTool(() => {
+        capabilityGate.authorizeRead(extra as ToolAuthExtra, resolved(path, cwd));
+        return files.readFileChunk(path, cwd, offset, maxBytes, encoding);
+      }),
   );
 
   server.registerTool(
@@ -168,9 +179,10 @@ export function registerFileTools(
       annotations: TOOL_ANNOTATIONS.destructiveNonIdempotentClosed,
       _meta: authMetadata,
     },
-    async ({ path, cwd, content, encoding, mode, createParents, fileMode }) =>
-      runTool(() =>
-        files.writeFileContent(
+    async ({ path, cwd, content, encoding, mode, createParents, fileMode }, extra) =>
+      runTool(() => {
+        capabilityGate.authorizeWrite(extra as ToolAuthExtra, resolved(path, cwd));
+        return files.writeFileContent(
           path,
           cwd,
           content,
@@ -178,8 +190,8 @@ export function registerFileTools(
           mode,
           createParents,
           parseMode(fileMode),
-        ),
-      ),
+        );
+      }),
   );
 
   server.registerTool(
@@ -212,17 +224,18 @@ export function registerFileTools(
       annotations: TOOL_ANNOTATIONS.destructiveNonIdempotentClosed,
       _meta: authMetadata,
     },
-    async ({ path, cwd, oldText, newText, replaceAll, expectedOccurrences }) =>
-      runTool(() =>
-        files.replaceInFile(
+    async ({ path, cwd, oldText, newText, replaceAll, expectedOccurrences }, extra) =>
+      runTool(() => {
+        capabilityGate.authorizeWrite(extra as ToolAuthExtra, resolved(path, cwd));
+        return files.replaceInFile(
           path,
           cwd,
           oldText,
           newText,
           replaceAll,
           expectedOccurrences,
-        ),
-      ),
+        );
+      }),
   );
 
   server.registerTool(
@@ -253,7 +266,10 @@ export function registerFileTools(
       _meta: authMetadata,
     },
     async ({ patch, cwd, checkOnly, reverse, threeWay }) =>
-      runTool(() => files.applyPatch(patch, cwd, { checkOnly, reverse, threeWay })),
+      runTool(() => {
+        capabilityGate.blockUnsafePatch();
+        return files.applyPatch(patch, cwd, { checkOnly, reverse, threeWay });
+      }),
   );
 
   server.registerTool(
@@ -288,10 +304,11 @@ export function registerFileTools(
       annotations: TOOL_ANNOTATIONS.destructiveIdempotentClosed,
       _meta: authMetadata,
     },
-    async ({ path, cwd, dataBase64, offset, truncate, createParents }) =>
-      runTool(() =>
-        files.uploadChunk(path, cwd, dataBase64, offset, truncate, createParents),
-      ),
+    async ({ path, cwd, dataBase64, offset, truncate, createParents }, extra) =>
+      runTool(() => {
+        capabilityGate.authorizeWrite(extra as ToolAuthExtra, resolved(path, cwd));
+        return files.uploadChunk(path, cwd, dataBase64, offset, truncate, createParents);
+      }),
   );
 
   server.registerTool(
@@ -320,8 +337,11 @@ export function registerFileTools(
       annotations: TOOL_ANNOTATIONS.readOnlyClosed,
       _meta: authMetadata,
     },
-    async ({ path, cwd, offset, maxBytes }) =>
-      runTool(() => files.downloadChunk(path, cwd, offset, maxBytes)),
+    async ({ path, cwd, offset, maxBytes }, extra) =>
+      runTool(() => {
+        capabilityGate.authorizeRead(extra as ToolAuthExtra, resolved(path, cwd));
+        return files.downloadChunk(path, cwd, offset, maxBytes);
+      }),
   );
 
   server.registerTool(
@@ -345,8 +365,11 @@ export function registerFileTools(
       annotations: TOOL_ANNOTATIONS.additiveIdempotentClosed,
       _meta: authMetadata,
     },
-    async ({ path, cwd, recursive, mode }) =>
-      runTool(() => files.makeDirectory(path, cwd, recursive, parseMode(mode))),
+    async ({ path, cwd, recursive, mode }, extra) =>
+      runTool(() => {
+        capabilityGate.authorizeWrite(extra as ToolAuthExtra, resolved(path, cwd));
+        return files.makeDirectory(path, cwd, recursive, parseMode(mode));
+      }),
   );
 
   server.registerTool(
@@ -372,8 +395,12 @@ export function registerFileTools(
       annotations: TOOL_ANNOTATIONS.destructiveIdempotentClosed,
       _meta: authMetadata,
     },
-    async ({ sourcePath, destinationPath, cwd, recursive, force }) =>
-      runTool(() => files.copyPath(sourcePath, destinationPath, cwd, recursive, force)),
+    async ({ sourcePath, destinationPath, cwd, recursive, force }, extra) =>
+      runTool(() => {
+        capabilityGate.authorizeRead(extra as ToolAuthExtra, resolved(sourcePath, cwd));
+        capabilityGate.authorizeWrite(extra as ToolAuthExtra, resolved(destinationPath, cwd));
+        return files.copyPath(sourcePath, destinationPath, cwd, recursive, force);
+      }),
   );
 
   server.registerTool(
@@ -393,8 +420,12 @@ export function registerFileTools(
       annotations: TOOL_ANNOTATIONS.destructiveIdempotentClosed,
       _meta: authMetadata,
     },
-    async ({ sourcePath, destinationPath, cwd, overwrite }) =>
-      runTool(() => files.movePath(sourcePath, destinationPath, cwd, overwrite)),
+    async ({ sourcePath, destinationPath, cwd, overwrite }, extra) =>
+      runTool(() => {
+        capabilityGate.authorizeDestructive(extra as ToolAuthExtra, resolved(sourcePath, cwd));
+        capabilityGate.authorizeWrite(extra as ToolAuthExtra, resolved(destinationPath, cwd));
+        return files.movePath(sourcePath, destinationPath, cwd, overwrite);
+      }),
   );
 
   server.registerTool(
@@ -418,8 +449,11 @@ export function registerFileTools(
       annotations: TOOL_ANNOTATIONS.destructiveIdempotentClosed,
       _meta: authMetadata,
     },
-    async ({ path, cwd, recursive, force }) =>
-      runTool(() => files.removePath(path, cwd, recursive, force)),
+    async ({ path, cwd, recursive, force }, extra) =>
+      runTool(() => {
+        capabilityGate.authorizeDestructive(extra as ToolAuthExtra, resolved(path, cwd));
+        return files.removePath(path, cwd, recursive, force);
+      }),
   );
 
   server.registerTool(
@@ -438,8 +472,11 @@ export function registerFileTools(
       annotations: TOOL_ANNOTATIONS.destructiveIdempotentClosed,
       _meta: authMetadata,
     },
-    async ({ path, cwd, mode }) =>
-      runTool(() => files.changeMode(path, cwd, parseMode(mode) ?? 0)),
+    async ({ path, cwd, mode }, extra) =>
+      runTool(() => {
+        capabilityGate.authorizeWrite(extra as ToolAuthExtra, resolved(path, cwd));
+        return files.changeMode(path, cwd, parseMode(mode) ?? 0);
+      }),
   );
 
   server.registerTool(
@@ -458,7 +495,10 @@ export function registerFileTools(
       annotations: TOOL_ANNOTATIONS.readOnlyClosed,
       _meta: authMetadata,
     },
-    async ({ path, cwd, algorithm }) =>
-      runTool(() => files.hashFile(path, cwd, algorithm)),
+    async ({ path, cwd, algorithm }, extra) =>
+      runTool(() => {
+        capabilityGate.authorizeRead(extra as ToolAuthExtra, resolved(path, cwd));
+        return files.hashFile(path, cwd, algorithm);
+      }),
   );
 }
