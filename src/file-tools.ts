@@ -397,8 +397,11 @@ export function registerFileTools(
     },
     async ({ sourcePath, destinationPath, cwd, recursive, force }, extra) =>
       runTool(() => {
-        capabilityGate.authorizeRead(extra as ToolAuthExtra, resolved(sourcePath, cwd));
-        capabilityGate.authorizeWrite(extra as ToolAuthExtra, resolved(destinationPath, cwd));
+        capabilityGate.authorizeCopy(
+          extra as ToolAuthExtra,
+          resolved(sourcePath, cwd),
+          resolved(destinationPath, cwd),
+        );
         return files.copyPath(sourcePath, destinationPath, cwd, recursive, force);
       }),
   );
@@ -422,8 +425,11 @@ export function registerFileTools(
     },
     async ({ sourcePath, destinationPath, cwd, overwrite }, extra) =>
       runTool(() => {
-        capabilityGate.authorizeDestructive(extra as ToolAuthExtra, resolved(sourcePath, cwd));
-        capabilityGate.authorizeWrite(extra as ToolAuthExtra, resolved(destinationPath, cwd));
+        capabilityGate.authorizeMove(
+          extra as ToolAuthExtra,
+          resolved(sourcePath, cwd),
+          resolved(destinationPath, cwd),
+        );
         return files.movePath(sourcePath, destinationPath, cwd, overwrite);
       }),
   );
