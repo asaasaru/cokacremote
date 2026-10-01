@@ -1,5 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import { ApprovalBroker } from "./approval-broker.js";
+import { registerApprovalTools } from "./approval-tools.js";
 import type { AppConfig } from "./config.js";
 import { registerExecTools } from "./exec-tools.js";
 import { FileService } from "./file-service.js";
@@ -9,6 +11,7 @@ import { ProcessManager } from "./process-manager.js";
 export interface McpServices {
   processManager: ProcessManager;
   fileService: FileService;
+  approvalBroker: ApprovalBroker;
 }
 
 export function createServices(config: AppConfig): McpServices {
@@ -25,6 +28,7 @@ export function createServices(config: AppConfig): McpServices {
       maxEditFileBytes: config.maxEditFileBytes,
       maxOutputBytes: config.maxOutputBytes,
     }),
+    approvalBroker: new ApprovalBroker(),
   };
 }
 
@@ -41,6 +45,7 @@ export function createMcpServer(config: AppConfig, services: McpServices): McpSe
     },
   );
 
+  registerApprovalTools(server, config, services.approvalBroker);
   registerExecTools(
     server,
     config,
