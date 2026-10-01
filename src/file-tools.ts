@@ -37,7 +37,10 @@ export function registerFileTools(
   capabilityGate: CapabilityGate,
 ): void {
   const authMetadata = toolAuthMetadata(config);
-  const resolved = (inputPath: string, cwd?: string): string => files.resolve(inputPath, cwd);
+  const resolved = (inputPath: string, cwd?: string): string =>
+    capabilityGate.isBounded()
+      ? files.resolveForPolicy(inputPath, cwd)
+      : files.resolve(inputPath, cwd);
 
   server.registerTool(
     "list_directory",
