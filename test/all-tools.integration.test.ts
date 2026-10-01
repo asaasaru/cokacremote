@@ -21,6 +21,7 @@ const ALL_TOOLS = [
   "exec_argv",
   "exec_command",
   "execution_recovery",
+  "execution_request",
   "execution_route",
   "execution_status",
   "hash_file",
@@ -54,6 +55,7 @@ const EXPECTED_ANNOTATIONS = {
   exec_argv: [false, true, false, false],
   exec_command: [false, true, false, true],
   execution_recovery: [true, false, true, false],
+  execution_request: [false, false, false, false],
   execution_route: [true, false, true, false],
   execution_status: [true, false, true, false],
   hash_file: [true, false, true, false],
@@ -237,6 +239,57 @@ describe.sequential("all registered MCP tools", () => {
     });
     expect(denied.policy).toMatchObject({ decision: "DENY" });
     expect(denied.route).toMatchObject({ decision: "BLOCKED_POLICY" });
+
+    const localRequest = await callOk("execution_request", {
+      profileId: "pine-tvauto",
+      projectId: "vic-tvauto",
+      capability: "workspace.read",
+      path: "/work/sandbox",
+      task: "coka.sandbox",
+      mode: "auto",
+      reason: "integration route request",
+    });
+    expect(localRequest).toMatchObject({
+      decision: "ROUTE",
+      handoff: {
+        backend: "coka_local",
+        nextAction: "EXECUTE_COKA_LOCAL",
+        probeRequired: false,
+      },
+    });
+
+    const rdcProbe = await callOk("execution_request", {
+      profileId: "pine-tvauto",
+      projectId: "vic-tvauto",
+      capability: "workspace.read",
+      path: "/work/sandbox",
+      task: "project.read",
+      mode: "rdc",
+      reason: "probe stale/unknown RDC health",
+    });
+    expect(rdcProbe).toMatchObject({
+      decision: "PROBE",
+      handoff: {
+        backend: "remote_desktop",
+        nextAction: "INVOKE_REMOTE_DESKTOP",
+        probeRequired: true,
+      },
+    });
+
+    const approvalRequest = await callOk("execution_request", {
+      profileId: "pine-tvauto",
+      projectId: "vic-tvauto",
+      providerLabel: "chatgpt",
+      capability: "host.read",
+      path: "/Users/vicmac/DevMac/Biz/TVauto/README.md",
+      task: "project.read",
+      mode: "auto",
+      reason: "host read requires human approval",
+    });
+    expect(approvalRequest.decision).toBe("APPROVAL_REQUIRED");
+    expect(typeof approvalRequest.requestId).toBe("string");
+    expect(String(approvalRequest.approvalUrl)).toContain("/approvals/");
+    expect(approvalRequest.nextAction).toBe("AWAIT_HUMAN_APPROVAL");
 
     const recovery = await callOk("execution_recovery", {
       backend: "agentcore.antigravity",
