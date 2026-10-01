@@ -42,6 +42,18 @@ describe("CapabilityPolicyEngine", () => {
     }, now).decision).toBe("ALLOW");
   });
 
+  it("requires exact approval for sandbox process execution", () => {
+    const engine = new CapabilityPolicyEngine(pineTvautoProfile);
+    expect(engine.evaluate({
+      capability: "workspace.exec",
+      subjectId,
+      providerLabel,
+      projectId,
+      path: "/work/sandbox/demo",
+      command: { executable: "node", args: ["--version"] },
+    }, now).decision).toBe("APPROVAL_REQUIRED");
+  });
+
   it("requires approval for TVauto host access without a grant", () => {
     const engine = new CapabilityPolicyEngine(pineTvautoProfile);
     expect(engine.evaluate({
