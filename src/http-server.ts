@@ -152,7 +152,10 @@ export async function startHttpServer(
       activeMcpSessions: 0,
       activeMcpRequests,
       managedProcesses: services.processManager.list().length,
-      unrestrictedHostAccess: true,
+      capabilityMode: config.capabilityMode,
+      capabilityProfileId: config.capabilityProfileId,
+      capabilityProjectId: config.capabilityProjectId,
+      unrestrictedHostAccess: config.capabilityMode === "legacy",
       oauthEnabled: config.oauthEnabled,
       activeCapabilityGrants: services.approvalBroker.activeGrants().length,
     });
