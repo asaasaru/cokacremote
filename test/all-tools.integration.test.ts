@@ -18,7 +18,12 @@ const ALL_TOOLS = [
   "chmod_path",
   "copy_path",
   "download_file",
+  "exec_argv",
   "exec_command",
+  "execution_recovery",
+  "execution_request",
+  "execution_route",
+  "execution_status",
   "hash_file",
   "list_directory",
   "list_processes",
@@ -47,7 +52,12 @@ const EXPECTED_ANNOTATIONS = {
   chmod_path: [false, true, true, false],
   copy_path: [false, true, true, false],
   download_file: [true, false, true, false],
+  exec_argv: [false, true, false, false],
   exec_command: [false, true, false, true],
+  execution_recovery: [true, false, true, false],
+  execution_request: [false, false, false, false],
+  execution_route: [true, false, true, false],
+  execution_status: [true, false, true, false],
   hash_file: [true, false, true, false],
   list_directory: [true, false, true, false],
   list_processes: [true, false, true, false],
@@ -199,6 +209,97 @@ describe.sequential("all registered MCP tools", () => {
     }
   });
 
+  it("reports backend status and plans policy-safe routes without executing", async () => {
+    const status = await callOk("execution_status");
+    expect(status.backends).toEqual(expect.arrayContaining([
+      expect.objectContaining({ backend: "coka_local", status: "HEALTHY" }),
+      expect.objectContaining({ backend: "agentcore.antigravity", status: "UNKNOWN" }),
+    ]));
+
+    const localRoute = await callOk("execution_route", {
+      profileId: "pine-tvauto",
+      projectId: "vic-tvauto",
+      capability: "workspace.read",
+      path: "/work/sandbox",
+      task: "coka.sandbox",
+      mode: "auto",
+    });
+    expect(localRoute.policy).toMatchObject({ decision: "ALLOW" });
+    expect(localRoute.route).toMatchObject({
+      decision: "ROUTE",
+      backend: "coka_local",
+    });
+
+    const denied = await callOk("execution_route", {
+      profileId: "pine-tvauto",
+      projectId: "vic-tvauto",
+      capability: "real_trading",
+      task: "project.exec",
+      mode: "auto",
+    });
+    expect(denied.policy).toMatchObject({ decision: "DENY" });
+    expect(denied.route).toMatchObject({ decision: "BLOCKED_POLICY" });
+
+    const localRequest = await callOk("execution_request", {
+      profileId: "pine-tvauto",
+      projectId: "vic-tvauto",
+      capability: "workspace.read",
+      path: "/work/sandbox",
+      task: "coka.sandbox",
+      mode: "auto",
+      reason: "integration route request",
+    });
+    expect(localRequest).toMatchObject({
+      decision: "ROUTE",
+      handoff: {
+        backend: "coka_local",
+        nextAction: "EXECUTE_COKA_LOCAL",
+        probeRequired: false,
+      },
+    });
+
+    const rdcProbe = await callOk("execution_request", {
+      profileId: "pine-tvauto",
+      projectId: "vic-tvauto",
+      capability: "workspace.read",
+      path: "/work/sandbox",
+      task: "project.read",
+      mode: "rdc",
+      reason: "probe stale/unknown RDC health",
+    });
+    expect(rdcProbe).toMatchObject({
+      decision: "PROBE",
+      handoff: {
+        backend: "remote_desktop",
+        nextAction: "INVOKE_REMOTE_DESKTOP",
+        probeRequired: true,
+      },
+    });
+
+    const approvalRequest = await callOk("execution_request", {
+      profileId: "pine-tvauto",
+      projectId: "vic-tvauto",
+      providerLabel: "chatgpt",
+      capability: "host.read",
+      path: "/Users/vicmac/DevMac/Biz/TVauto/README.md",
+      task: "project.read",
+      mode: "auto",
+      reason: "host read requires human approval",
+    });
+    expect(approvalRequest.decision).toBe("APPROVAL_REQUIRED");
+    expect(typeof approvalRequest.requestId).toBe("string");
+    expect(String(approvalRequest.approvalUrl)).toContain("/approvals/");
+    expect(approvalRequest.nextAction).toBe("AWAIT_HUMAN_APPROVAL");
+
+    const recovery = await callOk("execution_recovery", {
+      backend: "agentcore.antigravity",
+    });
+    expect(recovery.health).toMatchObject({
+      backend: "agentcore.antigravity",
+      status: "UNKNOWN",
+    });
+  });
+
   it("creates subject-bound capability approval requests", async () => {
     const requested = await callOk("request_capability", {
       profileId: "pine-tvauto",
@@ -238,6 +339,13 @@ describe.sequential("all registered MCP tools", () => {
       login: false,
       yieldTimeMs: 3000,
     })).toMatchObject({ completed: true, exitCode: 0, stdout: "shell-ok" });
+
+    expect(await callOk("exec_argv", {
+      executable: "node",
+      args: ["-e", "process.stdout.write('argv-ok')"],
+      workdir: testRoot,
+      yieldTimeMs: 3000,
+    })).toMatchObject({ completed: true, exitCode: 0, stdout: "argv-ok" });
 
     const bounded = await callOk("exec_command", {
       cmd: "node -e \"process.stdout.write('x'.repeat(20000))\"",

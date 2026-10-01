@@ -145,6 +145,86 @@ describe.sequential("capability approval HTTP flow", () => {
     });
   });
 
+  it("consumes a one-use grant when an external execution handoff is issued", async () => {
+    const args = {
+      profileId: "pine-tvauto",
+      projectId: "vic-tvauto",
+      providerLabel: "chatgpt",
+      capability: "host.read",
+      path: "/Users/vicmac/DevMac/Biz/TVauto/README.md",
+      task: "project.read",
+      mode: "rdc",
+      reason: "verify external handoff grant consumption",
+    };
+
+    const requested = await client.callTool({
+      name: "execution_request",
+      arguments: args,
+    });
+    const requestData = requested.structuredContent as Record<string, unknown>;
+    expect(requestData.decision).toBe("APPROVAL_REQUIRED");
+    const requestId = String(requestData.requestId);
+
+    const approved = await fetch(new URL(`/approvals/${requestId}`, baseUrl), {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        access_key: "operator-approval-key",
+        decision: "approve",
+        ttl: "300000",
+        max_uses: "1",
+      }),
+    });
+    expect(approved.status).toBe(200);
+    expect(services.approvalBroker.activeGrants()).toHaveLength(1);
+
+    const handedOff = await client.callTool({
+      name: "execution_request",
+      arguments: args,
+    });
+    expect(handedOff.structuredContent).toMatchObject({
+      decision: "PROBE",
+      handoff: {
+        backend: "remote_desktop",
+        nextAction: "INVOKE_REMOTE_DESKTOP",
+        grantConsumption: "at_handoff_issuance",
+      },
+    });
+    expect(services.approvalBroker.activeGrants()).toHaveLength(0);
+
+    const exhausted = await client.callTool({
+      name: "execution_request",
+      arguments: args,
+    });
+    expect(exhausted.structuredContent).toMatchObject({
+      decision: "APPROVAL_REQUIRED",
+    });
+  });
+
+  it("warns the operator that an exec approval is not a kernel sandbox", async () => {
+    const requested = await client.callTool({
+      name: "request_capability",
+      arguments: {
+        profileId: "pine-tvauto",
+        projectId: "vic-tvauto",
+        providerLabel: "chatgpt",
+        capability: "host.exec",
+        path: "/Users/vicmac/DevMac/Biz/TVauto",
+        commandExecutable: "python3",
+        commandArgs: ["-m", "pytest", "-q"],
+        reason: "verify execution approval warning",
+      },
+    });
+    const data = requested.structuredContent as Record<string, unknown>;
+    expect(data.decision).toBe("APPROVAL_REQUIRED");
+
+    const page = await fetch(new URL(`/approvals/${String(data.requestId)}`, baseUrl));
+    expect(page.status).toBe(200);
+    const html = await page.text();
+    expect(html).toContain("정확한 argv");
+    expect(html).toContain("커널 수준으로 샌드박스");
+  });
+
   it("never turns a hard-denied request into an approval prompt", async () => {
     const denied = await client.callTool({
       name: "request_capability",

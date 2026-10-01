@@ -2,18 +2,19 @@ import type { PolicyProfile } from "./capability-policy.js";
 
 const SANDBOX = "/work/sandbox";
 const TVAUTO = "/Users/vicmac/DevMac/Biz/TVauto";
+const EXECUTABLES = ["git", "node", "npm", "python", "python3", "pytest"];
 
 export const baseCokaProfile: PolicyProfile = {
   id: "coka-base",
   alwaysAllow: [
     { capability: "workspace.read", paths: [SANDBOX] },
     { capability: "workspace.write", paths: [SANDBOX] },
-    { capability: "workspace.exec", paths: [SANDBOX], commands: ["git", "node", "npm", "python", "python3", "pytest"] },
   ],
   approvalRequired: [
+    { capability: "workspace.exec", paths: [SANDBOX], commands: EXECUTABLES },
     { capability: "host.read" },
     { capability: "host.write" },
-    { capability: "host.exec" },
+    { capability: "host.exec", commands: EXECUTABLES },
     { capability: "package.install" },
     { capability: "destructive.fs" },
   ],
@@ -30,15 +31,21 @@ export const pineTvautoProfile: PolicyProfile = {
   id: "pine-tvauto",
   alwaysAllow: [...baseCokaProfile.alwaysAllow],
   approvalRequired: [
+    { capability: "workspace.exec", paths: [SANDBOX], commands: EXECUTABLES },
     { capability: "host.read", paths: [TVAUTO] },
     { capability: "host.write", paths: [TVAUTO] },
+    { capability: "destructive.fs", paths: [TVAUTO] },
+    { capability: "package.install", paths: [TVAUTO] },
     {
       capability: "host.exec",
       paths: [TVAUTO],
-      commands: ["git", "node", "npm", "python", "python3", "pytest"],
+      commands: EXECUTABLES,
     },
     { capability: "tradingview.app" },
-    { capability: "tradingview.cdp", networkTargets: ["127.0.0.1:9229"] },
+    {
+      capability: "tradingview.cdp",
+      networkTargets: ["127.0.0.1:9229", "127.0.0.1:9333", "127.0.0.1:9222"],
+    },
     { capability: "loopback.http", networkTargets: ["127.0.0.1:5300"] },
   ],
   hardDeny: [...baseCokaProfile.hardDeny],

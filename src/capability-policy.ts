@@ -185,7 +185,11 @@ export class CapabilityPolicyEngine {
     private readonly grants: CapabilityGrant[] = [],
   ) {}
 
-  evaluate(request: CapabilityRequest, now = Date.now()): PolicyDecision {
+  private evaluateInternal(
+    request: CapabilityRequest,
+    now: number,
+    consumeGrant: boolean,
+  ): PolicyDecision {
     if (this.profile.hardDeny.some((rule) => ruleMatches(request, rule))) {
       return {
         decision: "DENY",
@@ -202,7 +206,9 @@ export class CapabilityPolicyEngine {
 
     const grant = this.grants.find((candidate) => grantMatches(request, candidate, now));
     if (grant) {
-      grant.uses += 1;
+      if (consumeGrant) {
+        grant.uses += 1;
+      }
       return {
         decision: "ALLOW",
         reason: "Matched active human-issued capability grant",
@@ -222,6 +228,14 @@ export class CapabilityPolicyEngine {
       decision: "DENY",
       reason: `No rule permits capability ${request.capability} under profile ${this.profile.id}`,
     };
+  }
+
+  evaluate(request: CapabilityRequest, now = Date.now()): PolicyDecision {
+    return this.evaluateInternal(request, now, true);
+  }
+
+  evaluatePreview(request: CapabilityRequest, now = Date.now()): PolicyDecision {
+    return this.evaluateInternal(request, now, false);
   }
 }
 

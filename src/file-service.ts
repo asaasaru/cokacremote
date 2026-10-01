@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { isUtf8 } from "node:buffer";
-import { constants, createReadStream } from "node:fs";
+import { constants, createReadStream, realpathSync } from "node:fs";
 import {
   appendFile,
   chmod,
@@ -110,6 +110,30 @@ function isPathWithin(parentPath: string, candidatePath: string): boolean {
   );
 }
 
+function canonicalizePathForPolicy(inputPath: string): string {
+  let cursor = path.resolve(inputPath);
+  const missingSegments: string[] = [];
+
+  for (;;) {
+    try {
+      const canonicalBase = realpathSync(cursor);
+      return missingSegments.length === 0
+        ? canonicalBase
+        : path.join(canonicalBase, ...missingSegments.reverse());
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+      const parent = path.dirname(cursor);
+      if (parent === cursor) {
+        throw error;
+      }
+      missingSegments.push(path.basename(cursor));
+      cursor = parent;
+    }
+  }
+}
+
 function utf8SequenceLength(firstByte: number): number {
   if (firstByte <= 0x7f) {
     return 1;
@@ -179,6 +203,10 @@ export class FileService {
       ? expandPath(cwd, this.#options.defaultCwd)
       : this.#options.defaultCwd;
     return expandPath(inputPath, base);
+  }
+
+  resolveForPolicy(inputPath: string, cwd?: string): string {
+    return canonicalizePathForPolicy(this.resolve(inputPath, cwd));
   }
 
   async getInfo(inputPath: string, cwd?: string): Promise<Record<string, unknown>> {

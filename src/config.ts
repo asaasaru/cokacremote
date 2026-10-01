@@ -1,5 +1,7 @@
 import path from "node:path";
 
+export type CapabilityMode = "legacy" | "bounded";
+
 export interface AppConfig {
   host: string;
   port: number;
@@ -11,6 +13,10 @@ export interface AppConfig {
   allowNoAuth: boolean;
   oauthEnabled: boolean;
   oauthApprovalKey: string | undefined;
+  backendHealthKey: string | undefined;
+  capabilityMode: CapabilityMode;
+  capabilityProfileId: string;
+  capabilityProjectId: string;
   oauthIssuerUrl: string | undefined;
   oauthResourceUrl: string | undefined;
   oauthStateFile: string;
@@ -118,6 +124,13 @@ export function loadConfig(
   }
 
   const defaultCwd = path.resolve(env.MCP_DEFAULT_CWD?.trim() || processCwd);
+  const capabilityModeRaw = env.MCP_CAPABILITY_MODE?.trim().toLowerCase() || "legacy";
+  if (capabilityModeRaw !== "legacy" && capabilityModeRaw !== "bounded") {
+    throw new Error("MCP_CAPABILITY_MODE must be legacy or bounded");
+  }
+  const capabilityMode = capabilityModeRaw as CapabilityMode;
+  const capabilityProfileId = env.MCP_CAPABILITY_PROFILE?.trim() || "coka-base";
+  const capabilityProjectId = env.MCP_CAPABILITY_PROJECT?.trim() || "cokacremote";
   const allowedHosts = env.MCP_ALLOWED_HOSTS?.split(",")
     .map((host) => host.trim().toLowerCase())
     .filter(Boolean);
@@ -151,6 +164,10 @@ export function loadConfig(
     allowNoAuth,
     oauthEnabled,
     oauthApprovalKey,
+    backendHealthKey: env.MCP_BACKEND_HEALTH_KEY?.trim() || undefined,
+    capabilityMode,
+    capabilityProfileId,
+    capabilityProjectId,
     oauthIssuerUrl,
     oauthResourceUrl,
     oauthStateFile: path.resolve(

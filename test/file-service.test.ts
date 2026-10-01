@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -22,6 +22,19 @@ describe("FileService", () => {
 
   afterEach(async () => {
     await rm(temporaryDirectory, { recursive: true, force: true });
+  });
+
+  it("canonicalizes paths for policy without changing operation-path semantics", async () => {
+    const targetDirectory = path.join(temporaryDirectory, "target");
+    const linkDirectory = path.join(temporaryDirectory, "link");
+    await files.makeDirectory(targetDirectory, undefined, true);
+    await symlink(targetDirectory, linkDirectory, "dir");
+
+    const lexical = files.resolve("link/value.txt");
+    const policy = files.resolveForPolicy("link/value.txt");
+
+    expect(lexical).toBe(path.join(linkDirectory, "value.txt"));
+    expect(policy).toBe(path.join(targetDirectory, "value.txt"));
   });
 
   it("writes, reads, lists, and replaces text", async () => {

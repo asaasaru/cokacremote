@@ -138,6 +138,7 @@ export interface StartProcessRequest {
   commandForDisplay: string;
   cwd: string;
   env?: Record<string, string> | undefined;
+  inheritEnv?: boolean | undefined;
   timeoutMs?: number | undefined;
   stdin?: string | undefined;
   cleanup?: (() => Promise<void>) | undefined;
@@ -192,7 +193,9 @@ export class ProcessManager {
 
     const child = spawn(request.executable, request.args, {
       cwd: request.cwd,
-      env: { ...process.env, ...request.env },
+      env: request.inheritEnv === false
+        ? { ...(request.env ?? {}) }
+        : { ...process.env, ...request.env },
       stdio: "pipe",
       detached: process.platform !== "win32",
       windowsHide: true,

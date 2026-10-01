@@ -42,6 +42,18 @@ describe("CapabilityPolicyEngine", () => {
     }, now).decision).toBe("ALLOW");
   });
 
+  it("requires exact approval for sandbox process execution", () => {
+    const engine = new CapabilityPolicyEngine(pineTvautoProfile);
+    expect(engine.evaluate({
+      capability: "workspace.exec",
+      subjectId,
+      providerLabel,
+      projectId,
+      path: "/work/sandbox/demo",
+      command: { executable: "node", args: ["--version"] },
+    }, now).decision).toBe("APPROVAL_REQUIRED");
+  });
+
   it("requires approval for TVauto host access without a grant", () => {
     const engine = new CapabilityPolicyEngine(pineTvautoProfile);
     expect(engine.evaluate({
@@ -67,6 +79,24 @@ describe("CapabilityPolicyEngine", () => {
     expect(decision.grantId).toBe("g1");
     expect(decision.remainingUses).toBe(1);
     expect(g.uses).toBe(1);
+  });
+
+  it("previews a matching grant without consuming its use count", () => {
+    const g = grant();
+    const engine = new CapabilityPolicyEngine(pineTvautoProfile, [g]);
+    const decision = engine.evaluatePreview({
+      capability: "host.read",
+      subjectId,
+      providerLabel,
+      projectId,
+      path: "/Users/vicmac/DevMac/Biz/TVauto/README.md",
+    }, now);
+    expect(decision).toMatchObject({
+      decision: "ALLOW",
+      grantId: "g1",
+      remainingUses: 2,
+    });
+    expect(g.uses).toBe(0);
   });
 
   it("does not allow a grant issued to another OAuth client", () => {
@@ -126,6 +156,31 @@ describe("CapabilityPolicyEngine", () => {
       providerLabel,
       projectId,
       networkTarget: "127.0.0.1:9999",
+    }, now).decision).toBe("DENY");
+  });
+
+  it("limits TradingView CDP approval to the TVauto resilient port set", () => {
+    const engine = new CapabilityPolicyEngine(pineTvautoProfile);
+    for (const networkTarget of [
+      "127.0.0.1:9229",
+      "127.0.0.1:9333",
+      "127.0.0.1:9222",
+    ]) {
+      expect(engine.evaluate({
+        capability: "tradingview.cdp",
+        subjectId,
+        providerLabel,
+        projectId,
+        networkTarget,
+      }, now).decision).toBe("APPROVAL_REQUIRED");
+    }
+
+    expect(engine.evaluate({
+      capability: "tradingview.cdp",
+      subjectId,
+      providerLabel,
+      projectId,
+      networkTarget: "127.0.0.1:9444",
     }, now).decision).toBe("DENY");
   });
 

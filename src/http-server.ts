@@ -10,6 +10,7 @@ import {
 import express, { type Request, type Response } from "express";
 
 import { registerApprovalRoutes } from "./approval-http.js";
+import { registerBackendHealthRoutes } from "./backend-health-http.js";
 import { createBearerAuth, createHostValidation } from "./auth.js";
 import type { AppConfig } from "./config.js";
 import { errorMessage } from "./errors.js";
@@ -99,6 +100,7 @@ export async function startHttpServer(
   });
   app.use(createHostValidation(config));
   registerApprovalRoutes(app, config, services.approvalBroker);
+  registerBackendHealthRoutes(app, config, services.health, services.circuits);
 
   const activeRequests = new Set<ActiveRequest>();
   let activeMcpRequests = 0;
@@ -150,7 +152,10 @@ export async function startHttpServer(
       activeMcpSessions: 0,
       activeMcpRequests,
       managedProcesses: services.processManager.list().length,
-      unrestrictedHostAccess: true,
+      capabilityMode: config.capabilityMode,
+      capabilityProfileId: config.capabilityProfileId,
+      capabilityProjectId: config.capabilityProjectId,
+      unrestrictedHostAccess: config.capabilityMode === "legacy",
       oauthEnabled: config.oauthEnabled,
       activeCapabilityGrants: services.approvalBroker.activeGrants().length,
     });
