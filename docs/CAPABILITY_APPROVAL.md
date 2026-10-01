@@ -60,3 +60,22 @@ Instead:
 6. append an immutable audit event containing request ID, grant ID, project, provider, capability, bounded target, decision, timestamp, and outcome.
 
 This keeps approval as a narrowly scoped capability, not a global bypass.
+
+
+## Host bridge execution ticket
+
+The live Mac bridge must not trust a grant ID supplied by an MCP client. A grant is a control-plane object, not an execution credential.
+
+For each approved host action, the hardened gateway should:
+
+1. evaluate the exact action against the active human grant and atomically consume one grant use;
+2. build an action digest over subject, project, capability, path/command/network target;
+3. issue a short-lived Ed25519-signed execution ticket (recommended TTL: 30 seconds, maximum 60 seconds);
+4. send the action plus ticket to the Mac bridge;
+5. have the Mac bridge verify the signature with a pinned public key, verify the action digest and expiry, and reject replayed ticket IDs;
+6. execute only the already-allowlisted operation;
+7. emit an audit result.
+
+The signing private key belongs only to the hardened control plane. The Mac bridge needs only the public key. Do not store either deployment key in the repository or sandbox.
+
+This double enforcement means an MCP client cannot convert a previously approved grant into a different path, command, port, project, or capability, and captured tickets cannot be replayed.
