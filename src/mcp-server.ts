@@ -2,19 +2,30 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { ApprovalBroker } from "./approval-broker.js";
 import { registerApprovalTools } from "./approval-tools.js";
+import { BackendHealthRegistry } from "./backend-health.js";
+import { BackendCircuitBreaker } from "./circuit-breaker.js";
 import type { AppConfig } from "./config.js";
+import { registerExecutionTools } from "./execution-tools.js";
+import { FallbackPolicy } from "./fallback-policy.js";
 import { registerExecTools } from "./exec-tools.js";
 import { FileService } from "./file-service.js";
 import { registerFileTools } from "./file-tools.js";
 import { ProcessManager } from "./process-manager.js";
+import { RecoveryWorkflow } from "./recovery-workflow.js";
 
 export interface McpServices {
   processManager: ProcessManager;
   fileService: FileService;
   approvalBroker: ApprovalBroker;
+  health: BackendHealthRegistry;
+  circuits: BackendCircuitBreaker;
+  fallback: FallbackPolicy;
+  recovery: RecoveryWorkflow;
 }
 
 export function createServices(config: AppConfig): McpServices {
+  const health = new BackendHealthRegistry();
+  health.markHealthy("coka_local");
   return {
     processManager: new ProcessManager({
       maxRetainedOutputBytes: config.maxRetainedProcessOutputBytes,
@@ -29,6 +40,10 @@ export function createServices(config: AppConfig): McpServices {
       maxOutputBytes: config.maxOutputBytes,
     }),
     approvalBroker: new ApprovalBroker(),
+    health,
+    circuits: new BackendCircuitBreaker(),
+    fallback: new FallbackPolicy(),
+    recovery: new RecoveryWorkflow(),
   };
 }
 
@@ -40,12 +55,18 @@ export function createMcpServer(config: AppConfig, services: McpServices): McpSe
     },
     {
       instructions:
-        "This server is an unrestricted remote development environment. Tools operate directly on the host with the MCP service process's full OS permissions. Use exec_command for shell, build, test, package, Git, service, and log workflows; run_script for complete Bash, Node.js, or Python scripts; and the file tools for direct file operations. Poll long-running commands with read_process or write_stdin.",
+        "This server exposes development tools plus bounded capability approval and execution-routing diagnostics. Capability policy decisions and verified backend health must not be bypassed. execution_route is advisory/read-only: it does not execute work, approve requests, or let callers mark backends healthy.",
       capabilities: { logging: {} },
     },
   );
 
   registerApprovalTools(server, config, services.approvalBroker);
+  registerExecutionTools(server, config, services.approvalBroker, {
+    health: services.health,
+    circuits: services.circuits,
+    fallback: services.fallback,
+    recovery: services.recovery,
+  });
   registerExecTools(
     server,
     config,
