@@ -263,6 +263,10 @@ describe("remote development MCP server", () => {
       transportMode: "stateless-json",
       activeMcpSessions: 0,
       activeMcpRequests: 0,
+      capabilityMode: "legacy",
+      capabilityProfileId: "coka-base",
+      capabilityProjectId: "cokacremote",
+      unrestrictedHostAccess: true,
     });
   });
 });
