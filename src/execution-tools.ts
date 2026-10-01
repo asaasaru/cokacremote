@@ -162,7 +162,7 @@ export function registerExecutionTools(
           networkTarget,
         };
         const profile = getPolicyProfile(profileId);
-        const policy = new CapabilityPolicyEngine(profile, broker.activeGrants()).evaluate(request);
+        const policy = new CapabilityPolicyEngine(profile, broker.activeGrants()).evaluatePreview(request);
         const router = new ExecutionRouter(
           services.health,
           services.circuits,
