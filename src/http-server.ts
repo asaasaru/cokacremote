@@ -152,7 +152,7 @@ export async function startHttpServer(
       managedProcesses: services.processManager.list().length,
       unrestrictedHostAccess: true,
       oauthEnabled: config.oauthEnabled,
-      pendingApprovals: services.approvalBroker.activeGrants().length,
+      activeCapabilityGrants: services.approvalBroker.activeGrants().length,
     });
   });
 
