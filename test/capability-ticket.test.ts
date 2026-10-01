@@ -84,7 +84,9 @@ describe("capability execution tickets", () => {
       ticketId: randomUUID(),
       now,
     });
-    const [payload, signature] = ticket.split(".");
+    const parts = ticket.split(".");
+    const payload = parts[0]!;
+    const signature = parts[1]!;
     const altered = `${payload}.${signature.slice(0, -1)}A`;
     expect(() => verifyCapabilityTicket({
       ticket: altered,
