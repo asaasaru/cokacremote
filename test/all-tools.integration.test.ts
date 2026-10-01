@@ -19,6 +19,9 @@ const ALL_TOOLS = [
   "copy_path",
   "download_file",
   "exec_command",
+  "execution_recovery",
+  "execution_route",
+  "execution_status",
   "hash_file",
   "list_directory",
   "list_processes",
@@ -48,6 +51,9 @@ const EXPECTED_ANNOTATIONS = {
   copy_path: [false, true, true, false],
   download_file: [true, false, true, false],
   exec_command: [false, true, false, true],
+  execution_recovery: [true, false, true, false],
+  execution_route: [true, false, true, false],
+  execution_status: [true, false, true, false],
   hash_file: [true, false, true, false],
   list_directory: [true, false, true, false],
   list_processes: [true, false, true, false],
@@ -197,6 +203,46 @@ describe.sequential("all registered MCP tools", () => {
         openWorldHint,
       });
     }
+  });
+
+  it("reports backend status and plans policy-safe routes without executing", async () => {
+    const status = await callOk("execution_status");
+    expect(status.backends).toEqual(expect.arrayContaining([
+      expect.objectContaining({ backend: "coka_local", status: "HEALTHY" }),
+      expect.objectContaining({ backend: "agentcore.antigravity", status: "UNKNOWN" }),
+    ]));
+
+    const localRoute = await callOk("execution_route", {
+      profileId: "pine-tvauto",
+      projectId: "vic-tvauto",
+      capability: "workspace.read",
+      path: "/work/sandbox",
+      task: "coka.sandbox",
+      mode: "auto",
+    });
+    expect(localRoute.policy).toMatchObject({ decision: "ALLOW" });
+    expect(localRoute.route).toMatchObject({
+      decision: "ROUTE",
+      backend: "coka_local",
+    });
+
+    const denied = await callOk("execution_route", {
+      profileId: "pine-tvauto",
+      projectId: "vic-tvauto",
+      capability: "real_trading",
+      task: "project.exec",
+      mode: "auto",
+    });
+    expect(denied.policy).toMatchObject({ decision: "DENY" });
+    expect(denied.route).toMatchObject({ decision: "BLOCKED_POLICY" });
+
+    const recovery = await callOk("execution_recovery", {
+      backend: "agentcore.antigravity",
+    });
+    expect(recovery.health).toMatchObject({
+      backend: "agentcore.antigravity",
+      status: "UNKNOWN",
+    });
   });
 
   it("creates subject-bound capability approval requests", async () => {
