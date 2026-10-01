@@ -7,8 +7,10 @@ import {
 } from "./backend-health.js";
 import { BackendCircuitBreaker } from "./circuit-breaker.js";
 import type { ExecutionTaskKind } from "./execution-adapters.js";
-
-export type ExecutionMode = "auto" | "cpaa" | "rdc" | "tvbridge" | "local";
+import {
+  type ExecutionMode,
+  FallbackPolicy,
+} from "./fallback-policy.js";
 
 export interface ExecutionRouteRequest {
   task: ExecutionTaskKind;
@@ -36,35 +38,6 @@ export interface ExecutionRouteDecision {
   skipped: SkippedRoute[];
 }
 
-const AUTO_ROUTES: Record<ExecutionTaskKind, BackendId[]> = {
-  "project.read": ["agentcore.antigravity", "agentcore.native", "remote_desktop"],
-  "project.write": ["agentcore.antigravity", "agentcore.native", "remote_desktop"],
-  "project.test": ["agentcore.antigravity", "agentcore.native", "remote_desktop"],
-  "project.exec": ["agentcore.antigravity", "agentcore.native", "remote_desktop"],
-  "agentcore.canary": ["agentcore.native", "remote_desktop"],
-  "agentcore.repair": ["remote_desktop"],
-  "tradingview.compile": ["tv_bridge", "agentcore.native", "remote_desktop"],
-  "tradingview.backtest": ["tv_bridge", "agentcore.native", "remote_desktop"],
-  "tradingview.gui": ["remote_desktop"],
-  "coka.sandbox": ["coka_local"],
-};
-
-function forcedCandidates(task: ExecutionTaskKind, mode: ExecutionMode): BackendId[] {
-  if (mode === "auto") {
-    return AUTO_ROUTES[task];
-  }
-  if (mode === "cpaa") {
-    return AUTO_ROUTES[task].filter((backend) => backend.startsWith("agentcore."));
-  }
-  if (mode === "rdc") {
-    return AUTO_ROUTES[task].filter((backend) => backend === "remote_desktop");
-  }
-  if (mode === "tvbridge") {
-    return AUTO_ROUTES[task].filter((backend) => backend === "tv_bridge");
-  }
-  return AUTO_ROUTES[task].filter((backend) => backend === "coka_local");
-}
-
 function skipReason(record: BackendHealthRecord, circuitAllowed: boolean): string {
   if (!circuitAllowed) {
     return `circuit open for ${record.backend}`;
@@ -76,6 +49,7 @@ export class ExecutionRouter {
   constructor(
     private readonly health: BackendHealthRegistry,
     private readonly circuits: BackendCircuitBreaker,
+    private readonly fallback: FallbackPolicy = new FallbackPolicy(),
   ) {}
 
   route(request: ExecutionRouteRequest, now = Date.now()): ExecutionRouteDecision {
@@ -94,7 +68,7 @@ export class ExecutionRouter {
       };
     }
 
-    const candidates = forcedCandidates(request.task, request.mode ?? "auto");
+    const candidates = this.fallback.candidates(request.task, request.mode ?? "auto");
     if (candidates.length === 0) {
       return {
         decision: "UNAVAILABLE",
@@ -127,7 +101,7 @@ export class ExecutionRouter {
           decision: "ROUTE",
           backend,
           degraded: false,
-          reason: `Selected healthy backend ${backend}.`,
+          reason: `Selected healthy backend ${backend} using fallback profile ${this.fallback.profileId()}.`,
           skipped,
         };
       }
