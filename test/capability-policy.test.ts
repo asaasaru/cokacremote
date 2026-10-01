@@ -143,7 +143,7 @@ describe("CapabilityPolicyEngine", () => {
       projectId,
       path: "/Users/vicmac/DevMac/Biz/TVauto",
       command: { executable: "/tmp/git", args: ["status"] },
-    }, now).decision).toBe("APPROVAL_REQUIRED");
+    }, now).decision).toBe("DENY");
   });
 
   it("binds an exec grant to the exact approved argv", () => {
