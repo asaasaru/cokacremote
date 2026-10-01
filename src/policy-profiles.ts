@@ -43,3 +43,20 @@ export const pineTvautoProfile: PolicyProfile = {
   ],
   hardDeny: [...baseCokaProfile.hardDeny],
 };
+
+const PROFILES = new Map<string, PolicyProfile>([
+  [baseCokaProfile.id, baseCokaProfile],
+  [pineTvautoProfile.id, pineTvautoProfile],
+]);
+
+export function getPolicyProfile(profileId: string): PolicyProfile {
+  const profile = PROFILES.get(profileId);
+  if (!profile) {
+    throw new Error(`Unknown policy profile: ${profileId}`);
+  }
+  return profile;
+}
+
+export function listPolicyProfileIds(): string[] {
+  return [...PROFILES.keys()];
+}
