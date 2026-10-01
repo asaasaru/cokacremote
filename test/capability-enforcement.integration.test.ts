@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -170,6 +170,58 @@ describe.sequential("bounded capability enforcement", () => {
     expect(structured(read).content).toBe("workspace-ok");
   });
 
+  it("canonicalizes symlinked paths before bounded policy evaluation", async () => {
+    const outsideFile = path.join(root, "outside-secret.txt");
+    await writeFile(outsideFile, "outside-secret", "utf8");
+    const linkPath = path.join(workspaceRoot, "escape");
+    await symlink(root, linkPath, "dir");
+
+    expect(await callError("read_file", {
+      path: path.join(linkPath, "outside-secret.txt"),
+    })).toContain("Capability approval required");
+  });
+
+  it("rejects unbound environment and stdin channels for exact execution", async () => {
+    const args = ["-e", "setTimeout(() => {}, 5000)"];
+
+    expect(await callError("exec_argv", {
+      executable: "node",
+      args,
+      workdir: workspaceRoot,
+      env: { TEST_OVERRIDE: "1" },
+      yieldTimeMs: 0,
+    })).toContain("Custom environment variables are disabled");
+
+    expect(await callError("exec_argv", {
+      executable: "node",
+      args,
+      workdir: workspaceRoot,
+      stdin: "unbound-input",
+      yieldTimeMs: 0,
+    })).toContain("Initial stdin is disabled");
+
+    const started = await call("exec_argv", {
+      executable: "node",
+      args,
+      workdir: workspaceRoot,
+      yieldTimeMs: 0,
+    });
+    expect(started.isError).not.toBe(true);
+    const sessionId = String(structured(started).sessionId);
+
+    expect(await callError("write_stdin", {
+      sessionId,
+      chars: "unbound-input",
+    })).toContain("write_stdin is disabled in bounded capability mode");
+
+    const terminated = await call("terminate_process", {
+      sessionId,
+      signal: "SIGTERM",
+      graceMs: 0,
+    });
+    expect(terminated.isError).not.toBe(true);
+  });
+
   it("requires and consumes an exact host write grant", async () => {
     const target = path.join(root, "host-write.txt");
 
@@ -199,6 +251,30 @@ describe.sequential("bounded capability enforcement", () => {
       path: target,
       content: "second-write",
     })).toContain("Capability approval required");
+  });
+
+  it("does not consume one side of a multi-path grant when the other side is blocked", async () => {
+    const source = path.join(root, "copy-source.txt");
+    const destination = path.join(root, "copy-destination.txt");
+    await writeFile(source, "copy-source", "utf8");
+
+    const grantId = await requestAndApprove(
+      {
+        capability: "host.read",
+        path: source,
+        reason: "bounded copy preflight test",
+      },
+      1,
+    );
+    expect(services.approvalBroker.getGrant(grantId)?.uses).toBe(0);
+
+    expect(await callError("copy_path", {
+      sourcePath: source,
+      destinationPath: destination,
+      recursive: false,
+      force: false,
+    })).toContain("Capability approval required");
+    expect(services.approvalBroker.getGrant(grantId)?.uses).toBe(0);
   });
 
   it("binds exec_argv to exact cwd and argv while route preview remains grant-neutral", async () => {
