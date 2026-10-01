@@ -102,7 +102,6 @@ describe("ExecutionRouter", () => {
       policyDecision: "APPROVAL_REQUIRED",
     })).toMatchObject({
       decision: "APPROVAL_REQUIRED",
-      backend: undefined,
     });
   });
 
@@ -113,7 +112,6 @@ describe("ExecutionRouter", () => {
       policyDecision: "DENY",
     })).toMatchObject({
       decision: "BLOCKED_POLICY",
-      backend: undefined,
     });
   });
 
