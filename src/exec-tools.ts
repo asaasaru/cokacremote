@@ -16,6 +16,34 @@ function processResult(result: Awaited<ReturnType<ProcessManager["read"]>>): Rec
   };
 }
 
+function boundedProcessEnvironment(): Record<string, string> {
+  const allowedKeys = [
+    "PATH",
+    "HOME",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "SHELL",
+    "USER",
+    "LOGNAME",
+    "SystemRoot",
+    "WINDIR",
+    "ComSpec",
+    "PATHEXT",
+  ];
+  const env: Record<string, string> = {};
+  for (const key of allowedKeys) {
+    const value = process.env[key];
+    if (value !== undefined) {
+      env[key] = value;
+    }
+  }
+  return env;
+}
+
 export function registerExecTools(
   server: McpServer,
   config: AppConfig,
@@ -254,14 +282,18 @@ export function registerExecTools(
     }, extra) =>
       runTool(async () => {
         capabilityGate.assertExactExecPayload(env, stdin);
-        const cwd = fileService.resolve(".", workdir);
+        const cwd = capabilityGate.isBounded()
+          ? fileService.resolveForPolicy(".", workdir)
+          : fileService.resolve(".", workdir);
         capabilityGate.authorizeExec(extra as ToolAuthExtra, cwd, { executable, args });
+        const bounded = capabilityGate.isBounded();
         const sessionId = processManager.start({
           executable,
           args,
           commandForDisplay: [executable, ...args].join(" "),
           cwd,
-          env,
+          env: bounded ? boundedProcessEnvironment() : env,
+          inheritEnv: !bounded,
           timeoutMs,
           stdin,
         });
