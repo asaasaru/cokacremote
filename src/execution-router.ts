@@ -20,6 +20,7 @@ export interface ExecutionRouteRequest {
 
 export type RouteDecisionKind =
   | "ROUTE"
+  | "PROBE"
   | "APPROVAL_REQUIRED"
   | "BLOCKED_POLICY"
   | "UNAVAILABLE";
@@ -79,6 +80,7 @@ export class ExecutionRouter {
 
     const skipped: SkippedRoute[] = [];
     const degraded: BackendId[] = [];
+    const unknown: BackendId[] = [];
 
     for (const backend of candidates) {
       const record = this.health.get(backend);
@@ -109,6 +111,10 @@ export class ExecutionRouter {
         degraded.push(backend);
         continue;
       }
+      if (record.status === "UNKNOWN" && circuitAllowed) {
+        unknown.push(backend);
+        continue;
+      }
 
       skipped.push({
         backend,
@@ -123,6 +129,16 @@ export class ExecutionRouter {
         backend,
         degraded: true,
         reason: `No healthy backend was available; selected degraded backend ${backend}.`,
+        skipped,
+      };
+    }
+
+    for (const backend of unknown) {
+      return {
+        decision: "PROBE",
+        backend,
+        degraded: true,
+        reason: `Backend ${backend} has no fresh verified health observation; allow one bounded live probe instead of treating stale/unknown telemetry as failure.`,
         skipped,
       };
     }
