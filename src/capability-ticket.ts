@@ -70,6 +70,24 @@ function keyObject(key: string | Buffer | KeyObject, kind: "private" | "public")
   return kind === "private" ? createPrivateKey(key) : createPublicKey(key);
 }
 
+function commandName(executable: string): string | undefined {
+  const value = executable.trim();
+  if (!value || value !== path.basename(value) || value.includes("/") || value.includes("\\")) {
+    return undefined;
+  }
+  return value;
+}
+
+function commandSpecMatches(
+  request: NonNullable<CapabilityRequest["command"]>,
+  approved: NonNullable<CapabilityRequest["command"]>,
+): boolean {
+  return (
+    commandName(request.executable) === commandName(approved.executable) &&
+    JSON.stringify(request.args ?? []) === JSON.stringify(approved.args ?? [])
+  );
+}
+
 function isWithin(candidatePath: string, rootPath: string): boolean {
   const candidate = path.resolve(candidatePath);
   const root = path.resolve(rootPath);
@@ -97,7 +115,16 @@ function grantCoversRequest(grant: CapabilityGrant, request: CapabilityRequest, 
   }
   if (
     grant.commands?.length &&
-    (!request.command || !grant.commands.includes(path.basename(request.command.executable)))
+    (!request.command ||
+      !commandName(request.command.executable) ||
+      !grant.commands.includes(commandName(request.command.executable)!))
+  ) {
+    return false;
+  }
+  if (
+    grant.commandSpecs?.length &&
+    (!request.command ||
+      !grant.commandSpecs.some((approved) => commandSpecMatches(request.command!, approved)))
   ) {
     return false;
   }
