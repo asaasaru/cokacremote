@@ -29,7 +29,7 @@ const capabilitySchema = z.enum([
   "docker.socket",
   "browser.personal_profile",
   "host.unrestricted",
-]);
+]).describe("Bounded capability being requested or evaluated.");
 
 function subjectId(extra: { authInfo?: { clientId?: string } }): string {
   const value = extra.authInfo?.clientId?.trim();
@@ -59,14 +59,14 @@ export function registerApprovalTools(
       description:
         "Evaluate a bounded capability request. Hard-denied actions remain denied. Approval-required actions create a pending request for a separate human-only approval surface; this tool cannot approve its own request.",
       inputSchema: {
-        profileId: z.string().default("pine-tvauto"),
-        projectId: z.string().min(1).max(128),
-        providerLabel: z.string().min(1).max(64).optional(),
+        profileId: z.string().default("pine-tvauto").describe("Policy profile used to evaluate the request. Defaults to the bounded pine-tvauto profile."),
+        projectId: z.string().min(1).max(128).describe("Stable project identifier the requested capability is bound to."),
+        providerLabel: z.string().min(1).max(64).optional().describe("Optional human-readable provider label. Authorization is bound to the authenticated client ID, not this label."),
         capability: capabilitySchema,
-        path: z.string().optional(),
-        commandExecutable: z.string().optional(),
-        networkTarget: z.string().optional(),
-        reason: z.string().max(1000).optional(),
+        path: z.string().optional().describe("Exact host or workspace path involved in the requested capability, when applicable."),
+        commandExecutable: z.string().optional().describe("Executable name or path to constrain an execution capability, when applicable."),
+        networkTarget: z.string().optional().describe("Exact host:port target to constrain a network capability, when applicable."),
+        reason: z.string().max(1000).optional().describe("Short explanation shown to the human operator for this capability request."),
       },
       annotations: TOOL_ANNOTATIONS.additiveNonIdempotentClosed,
       _meta: authMetadata,
@@ -127,7 +127,7 @@ export function registerApprovalTools(
       title: "Read capability approval status",
       description: "Read the status of a capability request created by this authenticated MCP client.",
       inputSchema: {
-        requestId: z.string().uuid(),
+        requestId: z.string().uuid().describe("Capability approval request ID returned by request_capability."),
       },
       annotations: TOOL_ANNOTATIONS.readOnlyClosed,
       _meta: authMetadata,
@@ -153,7 +153,7 @@ export function registerApprovalTools(
       title: "Revoke own capability grant",
       description: "Revoke a capability grant owned by this authenticated MCP client. Revocation never grants new access.",
       inputSchema: {
-        grantId: z.string().uuid(),
+        grantId: z.string().uuid().describe("Capability grant ID owned by the authenticated MCP client to revoke."),
       },
       annotations: TOOL_ANNOTATIONS.destructiveIdempotentClosed,
       _meta: authMetadata,
