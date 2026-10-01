@@ -129,6 +129,31 @@ describe("CapabilityPolicyEngine", () => {
     }, now).decision).toBe("DENY");
   });
 
+  it("limits TradingView CDP approval to the TVauto resilient port set", () => {
+    const engine = new CapabilityPolicyEngine(pineTvautoProfile);
+    for (const networkTarget of [
+      "127.0.0.1:9229",
+      "127.0.0.1:9333",
+      "127.0.0.1:9222",
+    ]) {
+      expect(engine.evaluate({
+        capability: "tradingview.cdp",
+        subjectId,
+        providerLabel,
+        projectId,
+        networkTarget,
+      }, now).decision).toBe("APPROVAL_REQUIRED");
+    }
+
+    expect(engine.evaluate({
+      capability: "tradingview.cdp",
+      subjectId,
+      providerLabel,
+      projectId,
+      networkTarget: "127.0.0.1:9444",
+    }, now).decision).toBe("DENY");
+  });
+
   it("rejects executable paths even when the basename is allowlisted", () => {
     const g = grant({
       capabilities: ["host.exec"],
