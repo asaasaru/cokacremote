@@ -89,6 +89,7 @@ export function registerApprovalRoutes(
       .send(page("coka capability 승인", `
         ${summary}
         <p class="warning">이 승인은 표시된 capability에만 적용됩니다. HARD_DENY 항목은 승인할 수 없습니다.</p>
+        ${pending.request.command ? '<p class="warning">실행 승인은 표시된 정확한 argv의 프로세스 시작을 허용합니다. 승인된 자식 프로세스 자체를 커널 수준으로 샌드박스하는 승인은 아니므로, 격리된 실행 환경 안에서만 승인하세요.</p>' : ""}
         <form method="post" autocomplete="off">
           <label for="access_key">운영자 인증키</label>
           <input id="access_key" name="access_key" type="password" required autocomplete="current-password">
