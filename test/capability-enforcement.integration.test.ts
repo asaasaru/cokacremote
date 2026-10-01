@@ -200,6 +200,17 @@ describe.sequential("bounded capability enforcement", () => {
       yieldTimeMs: 0,
     })).toContain("Initial stdin is disabled");
 
+    await requestAndApprove(
+      {
+        capability: "workspace.exec",
+        path: workspaceRoot,
+        commandExecutable: "node",
+        commandArgs: args,
+        reason: "bounded interactive-channel test",
+      },
+      1,
+    );
+
     const started = await call("exec_argv", {
       executable: "node",
       args,
@@ -220,6 +231,48 @@ describe.sequential("bounded capability enforcement", () => {
       graceMs: 0,
     });
     expect(terminated.isError).not.toBe(true);
+  });
+
+  it("does not inherit token-like server environment variables into bounded exec", async () => {
+    const key = "COKA_BOUNDED_SECRET_CANARY";
+    const previous = process.env[key];
+    process.env[key] = "must-not-leak";
+    const args = [
+      "-e",
+      `process.stdout.write(process.env.${key} ?? "absent")`,
+    ];
+
+    try {
+      await requestAndApprove(
+        {
+          capability: "workspace.exec",
+          path: workspaceRoot,
+          commandExecutable: "node",
+          commandArgs: args,
+          reason: "bounded environment sanitization test",
+        },
+        1,
+      );
+
+      const executed = await call("exec_argv", {
+        executable: "node",
+        args,
+        workdir: workspaceRoot,
+        yieldTimeMs: 3000,
+      });
+      expect(executed.isError).not.toBe(true);
+      expect(structured(executed)).toMatchObject({
+        completed: true,
+        exitCode: 0,
+        stdout: "absent",
+      });
+    } finally {
+      if (previous === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = previous;
+      }
+    }
   });
 
   it("requires and consumes an exact host write grant", async () => {
