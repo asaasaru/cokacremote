@@ -68,9 +68,11 @@ Remote Desktop is a recovery/bootstrap/GUI transport, not an unrestricted policy
 
 ## Runtime integration boundary
 
-This branch implements deterministic routing, health, circuit-breaker, and recovery planning only. It does **not** pretend that AgentCore, Antigravity, Remote Desktop, or TV Bridge are connected.
+This branch implements deterministic routing, approval-aware execution handoff, health, circuit-breaker, and recovery planning. `execution_request` evaluates the exact capability request first; approval-required actions create a human-only approval request, while allowed actions return a bounded executor handoff (`INVOKE_AGENTCORE`, `INVOKE_REMOTE_DESKTOP`, `INVOKE_TV_BRIDGE`, or `EXECUTE_COKA_LOCAL`) containing the same action digest.
 
-Live adapters must report verified health into `BackendHealthRegistry`. They must not allow an MCP caller to self-report a backend as healthy or to mutate policy state.
+`UNKNOWN` is **not** treated as proof that a machine or transport is offline. For an otherwise permitted action, the router may return a one-shot `PROBE` handoff. The caller must attempt the bounded live operation and feed the verified result back through the trusted health adapter. Stale UI badges or `last seen` metadata alone must not mark a host unavailable.
+
+A handoff is not a fabricated server-to-server transport. The host/orchestrator must invoke the selected connected adapter and enforce the same approval/action boundary. Live adapters must report verified health into `BackendHealthRegistry`; MCP callers may not self-report a backend as healthy or mutate policy state.
 
 
 ## Outcome classification
@@ -112,7 +114,7 @@ MCP_CAPABILITY_PROJECT=vic-tvauto
 - process sessions started by `exec_argv` are bound to the authenticated subject for follow-up reads/termination; custom `env`, initial stdin, and interactive `write_stdin` are disabled in bounded mode because those channels are not part of the exact argv grant;
 - bounded child processes receive only a small non-secret environment allowlist (`PATH`, home/temp/locale/shell/user and required Windows equivalents) instead of inheriting the MCP server environment;
 - copy/move multi-path authorization is preflighted atomically so a grant is not consumed when another required path/capability is blocked;
-- `execution_route` is a non-consuming preview; the actual file/exec action consumes the bounded grant.
+- `execution_route` is a non-consuming preview; `execution_request` creates the approval request or returns a bounded executor handoff; the actual executor boundary consumes/enforces the grant.
 
 The `pine-tvauto` profile keeps TradingView and TVauto host access approval-bound. Its resilient CDP target set is limited to `127.0.0.1:9229`, `:9333`, and `:9222`; the REST bridge is limited to `127.0.0.1:5300`. TVauto destructive filesystem and package-install actions are also approval-bound rather than permanently denied.
 
