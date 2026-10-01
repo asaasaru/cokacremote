@@ -79,3 +79,18 @@ For each approved host action, the hardened gateway should:
 The signing private key belongs only to the hardened control plane. The Mac bridge needs only the public key. Do not store either deployment key in the repository or sandbox.
 
 This double enforcement means an MCP client cannot convert a previously approved grant into a different path, command, port, project, or capability, and captured tickets cannot be replayed.
+
+
+## Mandatory host-side canonicalization
+
+The hardened Mac bridge is a second policy boundary. It must independently enforce the signed request before any host action.
+
+For filesystem actions it must resolve both the approved root and requested target with the host OS equivalent of `realpath()`, verify that the resolved target remains inside the resolved approved root, and reject symlink escapes, device/special files, and unexpected object types.
+
+For command execution, requests must use bare executable names only. The Mac bridge must map each approved name to a fixed operator-owned absolute binary path rather than resolving through a model-controlled `PATH`, working directory, alias, wrapper, or project file. The exact argv approved by the human must match the argv covered by the signed action ticket.
+
+These host-side checks remain mandatory even when the gateway already validated the request.
+
+## Live rollout hardening
+
+The live capability approval surface must use a human-only operator key unavailable to MCP tools, the executor, project files, or the model. Approval responses must be non-cacheable and approval attempts should be rate-limited at the hardened gateway. These live-stack controls are deployment requirements and should be implemented in the hardened source rather than by replacing that stack with this prototype repository.
