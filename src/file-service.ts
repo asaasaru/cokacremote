@@ -35,7 +35,6 @@ export interface FileServiceOptions {
   maxChunkBytes: number;
   maxEditFileBytes: number;
   maxOutputBytes: number;
-  canonicalizePaths?: boolean;
 }
 
 export interface ListDirectoryOptions {
@@ -203,10 +202,11 @@ export class FileService {
     const base = cwd
       ? expandPath(cwd, this.#options.defaultCwd)
       : this.#options.defaultCwd;
-    const resolvedPath = expandPath(inputPath, base);
-    return this.#options.canonicalizePaths
-      ? canonicalizePathForPolicy(resolvedPath)
-      : resolvedPath;
+    return expandPath(inputPath, base);
+  }
+
+  resolveForPolicy(inputPath: string, cwd?: string): string {
+    return canonicalizePathForPolicy(this.resolve(inputPath, cwd));
   }
 
   async getInfo(inputPath: string, cwd?: string): Promise<Record<string, unknown>> {
