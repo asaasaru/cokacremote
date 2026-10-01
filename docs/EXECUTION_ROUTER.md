@@ -91,3 +91,27 @@ External executors do not become healthy merely because an MCP caller says so. A
 The route is disabled unless `MCP_BACKEND_HEALTH_KEY` is configured. Reports must provide that separate secret in the `x-coka-health-key` header. The route accepts only external backends (`agentcore.antigravity`, `agentcore.native`, `remote_desktop`, `tv_bridge`); reporters cannot override `coka_local`.
 
 The HTTP route feeds observations through `classifyBackendObservation()`, updates `BackendHealthRegistry`, and advances the backend circuit breaker. It is intentionally separate from MCP authentication and capability grants.
+
+## Capability enforcement at the host boundary
+
+Routing is not the security boundary. For managed deployments, set:
+
+```env
+MCP_CAPABILITY_MODE=bounded
+MCP_CAPABILITY_PROFILE=pine-tvauto
+MCP_CAPABILITY_PROJECT=vic-tvauto
+```
+
+`legacy` exists only for backward compatibility. In bounded mode:
+
+- file reads/writes are checked against the authenticated MCP client, configured project/profile, exact resolved path, and active grants before touching the host;
+- destructive move/remove operations require a permitted workspace write or a `destructive.fs` grant;
+- `exec_command` and `run_script` are disabled because arbitrary shell/script text cannot be safely represented by an exact argv grant;
+- `exec_argv` directly spawns one bare executable with an explicit argument vector and no shell expansion;
+- `apply_patch` is disabled because a unified patch can reference paths outside the approved root;
+- process sessions started by `exec_argv` are bound to the authenticated subject for follow-up reads/stdin/termination;
+- `execution_route` is a non-consuming preview; the actual file/exec action consumes the bounded grant.
+
+The `pine-tvauto` profile keeps TradingView and TVauto host access approval-bound. Its resilient CDP target set is limited to `127.0.0.1:9229`, `:9333`, and `:9222`; the REST bridge is limited to `127.0.0.1:5300`. TVauto destructive filesystem and package-install actions are also approval-bound rather than permanently denied.
+
+`GET /health` exposes `capabilityMode`, `capabilityProfileId`, `capabilityProjectId`, and reports `unrestrictedHostAccess=false` when bounded enforcement is active.
