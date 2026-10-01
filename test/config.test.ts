@@ -106,3 +106,50 @@ describe("loadConfig", () => {
     ).toThrow("must not contain user credentials");
   });
 });
+
+
+describe("AgentCore broker configuration", () => {
+  it("is disabled when no device keys are configured", () => {
+    const config = loadConfig({ MCP_AUTH_TOKEN: "secret" }, "/tmp");
+    expect(config.agentcoreDeviceKeys).toEqual({});
+    expect(config.agentcoreDeviceStaleMs).toBe(90_000);
+    expect(config.agentcoreJobTtlMs).toBe(15 * 60_000);
+  });
+
+  it("loads bounded per-device secrets without exposing defaults", () => {
+    const config = loadConfig(
+      {
+        MCP_AUTH_TOKEN: "secret",
+        MCP_AGENTCORE_DEVICE_KEYS_JSON:
+          '{"vicMac.local":"0123456789abcdef","m":"fedcba9876543210"}',
+        MCP_AGENTCORE_DEVICE_STALE_MS: "120000",
+        MCP_AGENTCORE_JOB_TTL_MS: "600000",
+      },
+      "/tmp",
+    );
+    expect(config.agentcoreDeviceKeys).toEqual({
+      "vicMac.local": "0123456789abcdef",
+      m: "fedcba9876543210",
+    });
+    expect(config.agentcoreDeviceStaleMs).toBe(120_000);
+    expect(config.agentcoreJobTtlMs).toBe(600_000);
+  });
+
+  it("rejects malformed or weak device-key configuration", () => {
+    expect(() =>
+      loadConfig(
+        { MCP_AUTH_TOKEN: "secret", MCP_AGENTCORE_DEVICE_KEYS_JSON: "not-json" },
+        "/tmp",
+      ),
+    ).toThrow("must be valid JSON");
+    expect(() =>
+      loadConfig(
+        {
+          MCP_AUTH_TOKEN: "secret",
+          MCP_AGENTCORE_DEVICE_KEYS_JSON: '{"vicMac.local":"short"}',
+        },
+        "/tmp",
+      ),
+    ).toThrow("between 16 and 512");
+  });
+});

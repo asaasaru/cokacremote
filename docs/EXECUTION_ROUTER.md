@@ -121,3 +121,32 @@ The `pine-tvauto` profile keeps TradingView and TVauto host access approval-boun
 `GET /health` exposes `capabilityMode`, `capabilityProfileId`, `capabilityProjectId`, and reports `unrestrictedHostAccess=false` when bounded enforcement is active.
 
 The capability gate controls whether MCP operations and process starts are authorized. It is **not** a kernel/syscall sandbox for an already-approved child process. Keep bounded execution inside the existing coka/AgentCore OS or container isolation boundary, and do not mount host secrets or unrestricted host roots into that execution environment.
+
+
+## Independent AgentCore transport
+
+Normal project work can run without Remote Desktop Commander when the AgentCore broker is enabled.
+
+The coka server accepts outbound device registration only through dedicated internal endpoints:
+
+- `POST /internal/agentcore/register`
+- `POST /internal/agentcore/heartbeat`
+- `POST /internal/agentcore/poll`
+- `POST /internal/agentcore/result`
+
+Each device authenticates with a configured device ID and a separate device key. These secrets are deployment/runtime configuration only and must not be stored in Git, Google Drive, plan files, logs, or model-visible artifacts.
+
+When a matching AgentCore device is active, `execution_request` consumes the already-approved coka grant and queues a subject-bound transport request. The caller polls `execution_status(requestId)` for the verified result. If the broker is enabled but no registered AgentCore device matches the project/path, the request returns `TRANSPORT_UNAVAILABLE` with `CONTROL_PLANE_TRANSPORT_MISSING` **before** consuming the grant.
+
+Fixed native read operations are limited to:
+
+- `stat`
+- `sha256`
+- bounded `text`
+- `git_status`
+
+Mutating AgentCore requests require `planId`, `planSha256`, and a bounded `instruction`. The device worker then routes the request through the existing AgentCore/CPAA `submit_payload()` path, preserving plan SHA, provider-bound approval, project root, manifest allowlist, approved tests, `--sandbox`, and the approved-whitelist `--dangerously-skip-permissions` requirement.
+
+No inbound host shell or filesystem server is introduced. RDC remains bootstrap/repair/GUI-only and may be intentionally offline during normal operation.
+
+The non-secret `/health` fields `executionRouterReady`, `agentcoreBrokerReady`, and `registeredAgentCoreDevices` report control-plane readiness. A branch or PR is not considered deployed until these fields are live and a bounded AgentCore round-trip succeeds with RDC intentionally stopped.

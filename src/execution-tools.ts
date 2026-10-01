@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
+import type { AgentCoreBackend, AgentCoreBroker } from "./agentcore-broker.js";
 import type { ApprovalBroker } from "./approval-broker.js";
 import {
   CapabilityPolicyEngine,
@@ -99,6 +100,7 @@ export interface ExecutionToolServices {
   circuits: BackendCircuitBreaker;
   fallback: FallbackPolicy;
   recovery: RecoveryWorkflow;
+  agentcoreBroker: AgentCoreBroker;
 }
 
 export function registerExecutionTools(
@@ -115,18 +117,39 @@ export function registerExecutionTools(
       title: "Read execution backend status",
       description:
         "Read verified backend health, circuit state, and adapter capabilities. This tool is read-only and cannot mark a backend healthy.",
-      inputSchema: {},
+      inputSchema: {
+        requestId: z.string().uuid().optional().describe("Optional AgentCore transport request ID returned by execution_request."),
+      },
       annotations: TOOL_ANNOTATIONS.readOnlyClosed,
       _meta: authMetadata,
     },
-    async () =>
-      runTool(() => ({
-        backends: services.health.list().map((record) => ({
-          ...record,
-          circuit: services.circuits.snapshot(record.backend),
-          adapter: EXECUTION_ADAPTERS[record.backend],
-        })),
-      })),
+    async ({ requestId }, extra) =>
+      runTool(() => {
+        if (requestId) {
+          const job = services.agentcoreBroker.getForSubject(requestId, subjectId(extra));
+          if (!job) {
+            throw new Error("Unknown execution request");
+          }
+          return {
+            request: job,
+            nextAction:
+              job.status === "queued" || job.status === "leased"
+                ? "POLL_EXECUTION_STATUS"
+                : "COMPLETE",
+          };
+        }
+        return {
+          backends: services.health.list().map((record) => ({
+            ...record,
+            circuit: services.circuits.snapshot(record.backend),
+            adapter: EXECUTION_ADAPTERS[record.backend],
+          })),
+          agentcoreTransport: {
+            enabled: services.agentcoreBroker.enabled(),
+            activeDevices: services.agentcoreBroker.activeDevices().length,
+          },
+        };
+      }),
   );
 
   server.registerTool(
@@ -224,6 +247,21 @@ export function registerExecutionTools(
         task: taskSchema.describe("Logical execution task."),
         mode: modeSchema.default("auto").describe("Route restriction: auto, cpaa, rdc, tvbridge, or local."),
         reason: z.string().max(1000).optional().describe("Short reason shown to the human approver."),
+        planId: z.string().min(1).max(255).optional().describe("Canonical plan basename for AgentCore work."),
+        planSha256: z.string().regex(/^[a-fA-F0-9]{64}$/).optional().describe("SHA-256 of the canonical plan."),
+        instruction: z.string().min(1).max(20_000).optional().describe("Bounded instruction delivered to AgentCore after policy approval."),
+        testIds: z.array(z.string().min(1).max(256)).max(100).optional().describe("Approved AgentCore test IDs."),
+        readOperation: z
+          .enum(["stat", "sha256", "text", "git_status"])
+          .optional()
+          .describe("Fixed read-only AgentCore operation. Valid only with task=project.read."),
+        maxBytes: z
+          .number()
+          .int()
+          .min(1)
+          .max(65_536)
+          .optional()
+          .describe("Maximum text bytes returned by readOperation=text."),
       },
       annotations: TOOL_ANNOTATIONS.additiveNonIdempotentClosed,
       _meta: authMetadata,
@@ -241,12 +279,36 @@ export function registerExecutionTools(
         task,
         mode,
         reason,
+        planId,
+        planSha256,
+        instruction,
+        testIds,
+        readOperation,
+        maxBytes,
       },
       extra,
     ) =>
       runTool(() => {
         if (commandArgs?.length && !commandExecutable) {
           throw new Error("commandArgs requires commandExecutable");
+        }
+        if ((planId && !planSha256) || (!planId && planSha256)) {
+          throw new Error("planId and planSha256 must be provided together");
+        }
+        if (
+          ["project.write", "project.test", "project.exec"].includes(task) &&
+          (!planId || !planSha256 || !instruction)
+        ) {
+          throw new Error("Mutating AgentCore tasks require planId, planSha256, and instruction");
+        }
+        if (readOperation && task !== "project.read") {
+          throw new Error("readOperation is valid only with task=project.read");
+        }
+        if (maxBytes && readOperation !== "text") {
+          throw new Error("maxBytes is valid only with readOperation=text");
+        }
+        if (task === "project.read" && readOperation === "git_status" && !path) {
+          throw new Error("git_status requires the approved project root path");
         }
 
         const request: CapabilityRequest = {
@@ -306,33 +368,96 @@ export function registerExecutionTools(
         if ((route.decision === "ROUTE" || route.decision === "PROBE") && route.backend) {
           const adapter = EXECUTION_ADAPTERS[route.backend];
           const externalHandoff = route.backend !== "coka_local";
+          const agentcoreBackend =
+            route.backend === "agentcore.native" || route.backend === "agentcore.antigravity"
+              ? (route.backend as AgentCoreBackend)
+              : undefined;
+
+          if (
+            agentcoreBackend &&
+            services.agentcoreBroker.enabled() &&
+            !services.agentcoreBroker.canRoute(agentcoreBackend, projectId, path)
+          ) {
+            return {
+              decision: "TRANSPORT_UNAVAILABLE",
+              profileId,
+              policy,
+              route,
+              actionDigest: actionDigest(request),
+              reason:
+                "CONTROL_PLANE_TRANSPORT_MISSING: no active AgentCore device is registered for this project/path.",
+              nextAction: "AWAIT_AGENTCORE_DEVICE",
+            };
+          }
+
           const handoffPolicy = externalHandoff
             ? policyEngine.evaluate(request)
             : policy;
           if (handoffPolicy.decision !== "ALLOW") {
             throw new Error("Capability became unavailable before external handoff issuance");
           }
+
+          const baseHandoff = {
+            backend: route.backend,
+            transport: adapter.transport,
+            provider: adapter.provider,
+            task,
+            capability,
+            path,
+            command: request.command,
+            networkTarget,
+            actionDigest: actionDigest(request),
+            probeRequired: route.decision === "PROBE",
+            nextAction: nextActionForBackend(route.backend),
+            grantConsumption: externalHandoff
+              ? "at_handoff_issuance"
+              : "at_executor_boundary",
+          };
+
+          if (agentcoreBackend && services.agentcoreBroker.enabled()) {
+            const job = services.agentcoreBroker.enqueue({
+              subjectId: request.subjectId,
+              backend: agentcoreBackend,
+              projectId,
+              task,
+              capability,
+              path,
+              command: request.command
+                ? { executable: request.command.executable, args: request.command.args ?? [] }
+                : undefined,
+              networkTarget,
+              actionDigest: actionDigest(request),
+              probeRequired: route.decision === "PROBE",
+              planId,
+              planSha256,
+              instruction,
+              testIds,
+              readOperation,
+              maxBytes,
+            });
+            return {
+              decision: route.decision,
+              profileId,
+              policy: handoffPolicy,
+              route,
+              transportRequestId: job.requestId,
+              transportStatus: job.status,
+              nextAction: "POLL_EXECUTION_STATUS",
+              handoff: {
+                ...baseHandoff,
+                deviceId: job.deviceId,
+                projectRoot: job.projectRoot,
+                nextAction: "AWAIT_AGENTCORE_RESULT",
+              },
+            };
+          }
+
           return {
             decision: route.decision,
             profileId,
             policy: handoffPolicy,
             route,
-            handoff: {
-              backend: route.backend,
-              transport: adapter.transport,
-              provider: adapter.provider,
-              task,
-              capability,
-              path,
-              command: request.command,
-              networkTarget,
-              actionDigest: actionDigest(request),
-              probeRequired: route.decision === "PROBE",
-              nextAction: nextActionForBackend(route.backend),
-              grantConsumption: externalHandoff
-                ? "at_handoff_issuance"
-                : "at_executor_boundary",
-            },
+            handoff: baseHandoff,
           };
         }
 

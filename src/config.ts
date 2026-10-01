@@ -14,6 +14,9 @@ export interface AppConfig {
   oauthEnabled: boolean;
   oauthApprovalKey: string | undefined;
   backendHealthKey: string | undefined;
+  agentcoreDeviceKeys: Record<string, string>;
+  agentcoreDeviceStaleMs: number;
+  agentcoreJobTtlMs: number;
   capabilityMode: CapabilityMode;
   capabilityProfileId: string;
   capabilityProjectId: string;
@@ -66,6 +69,36 @@ function parseInteger(
     throw new Error(`${name} must be an integer ${range}`);
   }
   return parsed;
+}
+
+function parseAgentCoreDeviceKeys(value: string | undefined): Record<string, string> {
+  if (!value?.trim()) {
+    return {};
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("MCP_AGENTCORE_DEVICE_KEYS_JSON must be valid JSON");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("MCP_AGENTCORE_DEVICE_KEYS_JSON must be a JSON object");
+  }
+  const entries = Object.entries(parsed as Record<string, unknown>);
+  if (entries.length > 32) {
+    throw new Error("MCP_AGENTCORE_DEVICE_KEYS_JSON supports at most 32 devices");
+  }
+  const result: Record<string, string> = {};
+  for (const [deviceId, secret] of entries) {
+    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(deviceId)) {
+      throw new Error("MCP_AGENTCORE_DEVICE_KEYS_JSON contains an invalid device ID");
+    }
+    if (typeof secret !== "string" || secret.length < 16 || secret.length > 512) {
+      throw new Error("AgentCore device keys must be strings between 16 and 512 characters");
+    }
+    result[deviceId] = secret;
+  }
+  return result;
 }
 
 function normalizeEndpoint(value: string | undefined): string {
@@ -165,6 +198,21 @@ export function loadConfig(
     oauthEnabled,
     oauthApprovalKey,
     backendHealthKey: env.MCP_BACKEND_HEALTH_KEY?.trim() || undefined,
+    agentcoreDeviceKeys: parseAgentCoreDeviceKeys(env.MCP_AGENTCORE_DEVICE_KEYS_JSON),
+    agentcoreDeviceStaleMs: parseInteger(
+      env.MCP_AGENTCORE_DEVICE_STALE_MS,
+      90_000,
+      "MCP_AGENTCORE_DEVICE_STALE_MS",
+      5_000,
+      15 * 60_000,
+    ),
+    agentcoreJobTtlMs: parseInteger(
+      env.MCP_AGENTCORE_JOB_TTL_MS,
+      15 * 60_000,
+      "MCP_AGENTCORE_JOB_TTL_MS",
+      30_000,
+      60 * 60_000,
+    ),
     capabilityMode,
     capabilityProfileId,
     capabilityProjectId,
