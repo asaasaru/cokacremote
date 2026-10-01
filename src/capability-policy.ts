@@ -1,6 +1,6 @@
 import path from "node:path";
 
-export type ProviderId = "chatgpt" | "claude" | "codex" | "hermes" | string;
+export type ProviderLabel = "chatgpt" | "claude" | "codex" | "hermes" | string;
 
 export type Capability =
   | "workspace.read"
@@ -27,12 +27,14 @@ export interface CommandSpec {
 
 export interface CapabilityRequest {
   capability: Capability;
-  provider: ProviderId;
+  subjectId: string;
+  providerLabel?: ProviderLabel;
   projectId: string;
   path?: string;
   command?: CommandSpec;
   networkTarget?: string;
   resource?: string;
+  reason?: string;
 }
 
 export interface CapabilityRule {
@@ -53,7 +55,8 @@ export interface CapabilityGrant {
   grantId: string;
   issuedBy: "human";
   approvalChannel: "local-ui" | "operator-cli" | "hardware";
-  provider: ProviderId;
+  subjectId: string;
+  providerLabel?: ProviderLabel;
   projectId: string;
   capabilities: Capability[];
   paths?: string[];
@@ -87,10 +90,7 @@ function isWithin(candidate: string, root: string): boolean {
 }
 
 function commandName(spec: CommandSpec | undefined): string | undefined {
-  if (!spec) {
-    return undefined;
-  }
-  return path.basename(spec.executable);
+  return spec ? path.basename(spec.executable) : undefined;
 }
 
 function matchesConstraints(
@@ -127,7 +127,14 @@ function grantMatches(request: CapabilityRequest, grant: CapabilityGrant, now: n
   if (grant.issuedBy !== "human" || grant.revokedAt !== undefined) {
     return false;
   }
-  if (grant.provider !== request.provider || grant.projectId !== request.projectId) {
+  if (grant.subjectId !== request.subjectId || grant.projectId !== request.projectId) {
+    return false;
+  }
+  if (
+    grant.providerLabel !== undefined &&
+    request.providerLabel !== undefined &&
+    grant.providerLabel !== request.providerLabel
+  ) {
     return false;
   }
   if (grant.expiresAt <= now || grant.uses >= grant.maxUses) {
