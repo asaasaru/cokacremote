@@ -11,6 +11,7 @@ export interface AppConfig {
   allowNoAuth: boolean;
   oauthEnabled: boolean;
   oauthApprovalKey: string | undefined;
+  backendHealthKey: string | undefined;
   oauthIssuerUrl: string | undefined;
   oauthResourceUrl: string | undefined;
   oauthStateFile: string;
@@ -151,6 +152,7 @@ export function loadConfig(
     allowNoAuth,
     oauthEnabled,
     oauthApprovalKey,
+    backendHealthKey: env.MCP_BACKEND_HEALTH_KEY?.trim() || undefined,
     oauthIssuerUrl,
     oauthResourceUrl,
     oauthStateFile: path.resolve(
