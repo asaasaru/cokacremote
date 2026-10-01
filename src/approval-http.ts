@@ -125,6 +125,15 @@ export function registerApprovalRoutes(
 
     if (request.body?.decision === "deny") {
       broker.denyFromTrustedChannel(requestId);
+      console.log(JSON.stringify({
+        event: "capability_approval",
+        requestId,
+        subjectId: pending.request.subjectId,
+        projectId: pending.request.projectId,
+        capability: pending.request.capability,
+        decision: "denied",
+        at: new Date().toISOString(),
+      }));
       response.type("html").send(page("요청 거부", "<p>Capability 요청을 거부했습니다.</p>"));
       return;
     }
@@ -145,6 +154,19 @@ export function registerApprovalRoutes(
       ttlMs: Number.isFinite(ttlMs) ? ttlMs : 30 * 60_000,
       maxUses: Number.isFinite(maxUses) ? maxUses : 10,
     });
+
+    console.log(JSON.stringify({
+      event: "capability_approval",
+      requestId,
+      grantId: grant.grantId,
+      subjectId: grant.subjectId,
+      projectId: grant.projectId,
+      capability: req.capability,
+      decision: "approved",
+      expiresAt: grant.expiresAt,
+      maxUses: grant.maxUses,
+      at: new Date().toISOString(),
+    }));
 
     response.type("html").send(page(
       "승인 완료",
