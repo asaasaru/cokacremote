@@ -123,6 +123,35 @@ describe("capability execution tickets", () => {
     })).toThrow(/does not cover/);
   });
 
+  it("refuses ticket issuance for widened command argv", () => {
+    const execRequest: CapabilityRequest = {
+      capability: "host.exec",
+      subjectId: request.subjectId,
+      providerLabel: "chatgpt",
+      projectId: request.projectId,
+      path: "/Users/vicmac/DevMac/Biz/TVauto",
+      command: { executable: "git", args: ["status", "--short"] },
+    };
+    const execGrant = grant({
+      capabilities: ["host.exec"],
+      networkTargets: undefined,
+      paths: ["/Users/vicmac/DevMac/Biz/TVauto"],
+      commands: ["git"],
+      commandSpecs: [{ executable: "git", args: ["status", "--short"] }],
+    });
+
+    expect(() => issueCapabilityTicket({
+      grant: execGrant,
+      request: {
+        ...execRequest,
+        command: { executable: "git", args: ["-C", "/tmp", "status"] },
+      },
+      privateKey,
+      ticketId: randomUUID(),
+      now,
+    })).toThrow(/does not cover/);
+  });
+
   it("prevents ticket replay at the host boundary", () => {
     const ticket = issueCapabilityTicket({
       grant: grant(),
