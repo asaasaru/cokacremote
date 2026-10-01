@@ -17,6 +17,12 @@ export const TOOL_ANNOTATIONS = {
     idempotentHint: true,
     openWorldHint: false,
   },
+  additiveNonIdempotentClosed: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: false,
+  },
   destructiveIdempotentClosed: {
     readOnlyHint: false,
     destructiveHint: true,
