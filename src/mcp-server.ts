@@ -4,6 +4,7 @@ import { ApprovalBroker } from "./approval-broker.js";
 import { registerApprovalTools } from "./approval-tools.js";
 import { BackendHealthRegistry } from "./backend-health.js";
 import { BackendCircuitBreaker } from "./circuit-breaker.js";
+import { CapabilityGate } from "./capability-gate.js";
 import type { AppConfig } from "./config.js";
 import { registerExecutionTools } from "./execution-tools.js";
 import { FallbackPolicy } from "./fallback-policy.js";
@@ -21,11 +22,14 @@ export interface McpServices {
   circuits: BackendCircuitBreaker;
   fallback: FallbackPolicy;
   recovery: RecoveryWorkflow;
+  capabilityGate: CapabilityGate;
 }
 
 export function createServices(config: AppConfig): McpServices {
   const health = new BackendHealthRegistry();
   health.markHealthy("coka_local");
+  const approvalBroker = new ApprovalBroker();
+  const capabilityGate = new CapabilityGate(config, approvalBroker);
   return {
     processManager: new ProcessManager({
       maxRetainedOutputBytes: config.maxRetainedProcessOutputBytes,
@@ -39,11 +43,12 @@ export function createServices(config: AppConfig): McpServices {
       maxEditFileBytes: config.maxEditFileBytes,
       maxOutputBytes: config.maxOutputBytes,
     }),
-    approvalBroker: new ApprovalBroker(),
+    approvalBroker,
     health,
     circuits: new BackendCircuitBreaker(),
     fallback: new FallbackPolicy(),
     recovery: new RecoveryWorkflow(),
+    capabilityGate,
   };
 }
 
@@ -72,7 +77,8 @@ export function createMcpServer(config: AppConfig, services: McpServices): McpSe
     config,
     services.processManager,
     services.fileService,
+    services.capabilityGate,
   );
-  registerFileTools(server, config, services.fileService);
+  registerFileTools(server, config, services.fileService, services.capabilityGate);
   return server;
 }
