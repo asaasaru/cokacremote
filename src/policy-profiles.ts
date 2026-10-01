@@ -32,6 +32,8 @@ export const pineTvautoProfile: PolicyProfile = {
   approvalRequired: [
     { capability: "host.read", paths: [TVAUTO] },
     { capability: "host.write", paths: [TVAUTO] },
+    { capability: "destructive.fs", paths: [TVAUTO] },
+    { capability: "package.install", paths: [TVAUTO] },
     {
       capability: "host.exec",
       paths: [TVAUTO],
