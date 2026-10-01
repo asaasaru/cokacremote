@@ -87,7 +87,8 @@ describe("capability execution tickets", () => {
     const parts = ticket.split(".");
     const payload = parts[0]!;
     const signature = parts[1]!;
-    const altered = `${payload}.${signature.slice(0, -1)}A`;
+    const replacement = signature[0] === "A" ? "B" : "A";
+    const altered = `${payload}.${replacement}${signature.slice(1)}`;
     expect(() => verifyCapabilityTicket({
       ticket: altered,
       request,
