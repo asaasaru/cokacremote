@@ -38,7 +38,10 @@ export const pineTvautoProfile: PolicyProfile = {
       commands: ["git", "node", "npm", "python", "python3", "pytest"],
     },
     { capability: "tradingview.app" },
-    { capability: "tradingview.cdp", networkTargets: ["127.0.0.1:9229"] },
+    {
+      capability: "tradingview.cdp",
+      networkTargets: ["127.0.0.1:9229", "127.0.0.1:9333", "127.0.0.1:9222"],
+    },
     { capability: "loopback.http", networkTargets: ["127.0.0.1:5300"] },
   ],
   hardDeny: [...baseCokaProfile.hardDeny],
