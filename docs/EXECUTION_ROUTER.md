@@ -71,3 +71,12 @@ Remote Desktop is a recovery/bootstrap/GUI transport, not an unrestricted policy
 This branch implements deterministic routing, health, circuit-breaker, and recovery planning only. It does **not** pretend that AgentCore, Antigravity, Remote Desktop, or TV Bridge are connected.
 
 Live adapters must report verified health into `BackendHealthRegistry`. They must not allow an MCP caller to self-report a backend as healthy or to mutate policy state.
+
+
+## Outcome classification
+
+Live adapters should convert verified provider/transport observations through a conservative classification layer before updating the health registry.
+
+Structured error codes are preferred. A bare HTTP 403 is **not** automatically treated as `POLICY_DENIED`; explicit policy evidence such as `OUTSIDE_APPROVED_WORKSPACE` or `SCOPE_DENIED` is required. Unknown failures degrade the backend instead of inventing an authentication, subscription, or policy cause.
+
+This prevents the router from either bypassing a real policy denial or unnecessarily disabling fallback because of an ambiguous provider error.
