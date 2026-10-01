@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import type express from "express";
+import express from "express";
 
 import type { ApprovalBroker } from "./approval-broker.js";
 import { tokensEqual } from "./auth.js";
