@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { isUtf8 } from "node:buffer";
-import { constants, createReadStream } from "node:fs";
+import { constants, createReadStream, realpathSync } from "node:fs";
 import {
   appendFile,
   chmod,
@@ -35,6 +35,7 @@ export interface FileServiceOptions {
   maxChunkBytes: number;
   maxEditFileBytes: number;
   maxOutputBytes: number;
+  canonicalizePaths?: boolean;
 }
 
 export interface ListDirectoryOptions {
@@ -110,6 +111,30 @@ function isPathWithin(parentPath: string, candidatePath: string): boolean {
   );
 }
 
+function canonicalizePathForPolicy(inputPath: string): string {
+  let cursor = path.resolve(inputPath);
+  const missingSegments: string[] = [];
+
+  for (;;) {
+    try {
+      const canonicalBase = realpathSync(cursor);
+      return missingSegments.length === 0
+        ? canonicalBase
+        : path.join(canonicalBase, ...missingSegments.reverse());
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+      const parent = path.dirname(cursor);
+      if (parent === cursor) {
+        throw error;
+      }
+      missingSegments.push(path.basename(cursor));
+      cursor = parent;
+    }
+  }
+}
+
 function utf8SequenceLength(firstByte: number): number {
   if (firstByte <= 0x7f) {
     return 1;
@@ -178,7 +203,10 @@ export class FileService {
     const base = cwd
       ? expandPath(cwd, this.#options.defaultCwd)
       : this.#options.defaultCwd;
-    return expandPath(inputPath, base);
+    const resolvedPath = expandPath(inputPath, base);
+    return this.#options.canonicalizePaths
+      ? canonicalizePathForPolicy(resolvedPath)
+      : resolvedPath;
   }
 
   async getInfo(inputPath: string, cwd?: string): Promise<Record<string, unknown>> {
