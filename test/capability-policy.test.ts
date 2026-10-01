@@ -69,6 +69,24 @@ describe("CapabilityPolicyEngine", () => {
     expect(g.uses).toBe(1);
   });
 
+  it("previews a matching grant without consuming its use count", () => {
+    const g = grant();
+    const engine = new CapabilityPolicyEngine(pineTvautoProfile, [g]);
+    const decision = engine.evaluatePreview({
+      capability: "host.read",
+      subjectId,
+      providerLabel,
+      projectId,
+      path: "/Users/vicmac/DevMac/Biz/TVauto/README.md",
+    }, now);
+    expect(decision).toMatchObject({
+      decision: "ALLOW",
+      grantId: "g1",
+      remainingUses: 2,
+    });
+    expect(g.uses).toBe(0);
+  });
+
   it("does not allow a grant issued to another OAuth client", () => {
     const engine = new CapabilityPolicyEngine(
       pineTvautoProfile,
