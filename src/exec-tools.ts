@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
+import { CapabilityGate, type ToolAuthExtra } from "./capability-gate.js";
 import type { AppConfig } from "./config.js";
 import { FileService } from "./file-service.js";
 import { ProcessManager } from "./process-manager.js";
@@ -20,6 +21,7 @@ export function registerExecTools(
   config: AppConfig,
   processManager: ProcessManager,
   fileService: FileService,
+  capabilityGate: CapabilityGate,
 ): void {
   const authMetadata = toolAuthMetadata(config);
   const environmentSchema = z
@@ -59,7 +61,7 @@ export function registerExecTools(
     {
       title: "Execute command",
       description:
-        "Run an unrestricted shell command on the host. The command inherits the MCP server's full OS permissions, environment, filesystem, and network access. A successful start always returns a process session ID, current process state, and retained output; poll a running process with read_process or write_stdin.",
+        "Legacy shell-command execution. In legacy mode a successful start always returns a process session ID; in bounded capability mode this tool is disabled because arbitrary shell text cannot be safely bound to an exact approved argv. Use exec_argv in bounded mode.",
       inputSchema: {
         cmd: z.string().min(1).describe("Shell command or script to execute."),
         workdir: z
@@ -101,8 +103,9 @@ export function registerExecTools(
       timeoutMs,
       yieldTimeMs,
       maxOutputBytes,
-    }) =>
+    }, extra) =>
       runTool(async () => {
+        capabilityGate.blockUnsafeShell("exec_command");
         const cwd = fileService.resolve(".", workdir);
         const executable = shell || config.defaultShell;
         const sessionId = processManager.start({
@@ -127,7 +130,7 @@ export function registerExecTools(
     {
       title: "Run script",
       description:
-        "Write a supplied script to a temporary executable file and run it with Bash, sh, Node.js, Python, or an arbitrary interpreter. Execution is unrestricted and has the MCP server's full host permissions. A successful start always returns a process session ID, current process state, and retained output.",
+        "Legacy temporary-script execution. Disabled in bounded capability mode because script bodies are not represented by the existing exact-command grant model.",
       inputSchema: {
         runtime: z
           .enum(["bash", "sh", "node", "python", "custom"])
@@ -183,8 +186,9 @@ export function registerExecTools(
       yieldTimeMs,
       maxOutputBytes,
       keepScript,
-    }) =>
+    }, extra) =>
       runTool(async () => {
+        capabilityGate.blockUnsafeShell("run_script");
         const result = await runScript(processManager, {
           runtime,
           script,
@@ -200,6 +204,69 @@ export function registerExecTools(
           keepScript,
         });
         return processResult(result);
+      }),
+  );
+
+  server.registerTool(
+    "exec_argv",
+    {
+      title: "Execute exact argv",
+      description:
+        "Execute one exact executable with an explicit argument vector and no shell expansion. In bounded mode the resolved workdir, executable, and exact args must be allowed by the active capability profile or a human-issued grant.",
+      inputSchema: {
+        executable: z
+          .string()
+          .regex(/^[A-Za-z0-9._+-]+$/)
+          .describe("Bare executable name only; paths and shell expressions are rejected."),
+        args: z
+          .array(z.string().max(2000))
+          .max(64)
+          .default([])
+          .describe("Exact argument vector passed directly to the executable."),
+        workdir: z
+          .string()
+          .optional()
+          .describe(`Working directory. Relative paths resolve from ${config.defaultCwd}.`),
+        env: environmentSchema,
+        stdin: z.string().optional().describe("Initial text written to stdin after spawn."),
+        timeoutMs: timeoutSchema,
+        yieldTimeMs: z
+          .number()
+          .int()
+          .min(0)
+          .max(30_000)
+          .default(10_000)
+          .describe("How long to wait for process exit before returning."),
+        maxOutputBytes: maxOutputBytesSchema,
+      },
+      annotations: TOOL_ANNOTATIONS.destructiveNonIdempotentClosed,
+      _meta: authMetadata,
+    },
+    async ({
+      executable,
+      args,
+      workdir,
+      env,
+      stdin,
+      timeoutMs,
+      yieldTimeMs,
+      maxOutputBytes,
+    }, extra) =>
+      runTool(async () => {
+        const cwd = fileService.resolve(".", workdir);
+        capabilityGate.authorizeExec(extra as ToolAuthExtra, cwd, { executable, args });
+        const sessionId = processManager.start({
+          executable,
+          args,
+          commandForDisplay: [executable, ...args].join(" "),
+          cwd,
+          env,
+          timeoutMs,
+          stdin,
+        });
+        capabilityGate.registerSession(extra as ToolAuthExtra, sessionId);
+        await processManager.waitForExit(sessionId, yieldTimeMs);
+        return processResult(await processManager.read(sessionId, { maxOutputBytes }));
       }),
   );
 
@@ -234,8 +301,9 @@ export function registerExecTools(
       annotations: TOOL_ANNOTATIONS.destructiveNonIdempotentOpen,
       _meta: authMetadata,
     },
-    async ({ sessionId, chars, closeStdin, afterSeq, yieldTimeMs, maxOutputBytes }) =>
+    async ({ sessionId, chars, closeStdin, afterSeq, yieldTimeMs, maxOutputBytes }, extra) =>
       runTool(async () => {
+        capabilityGate.assertSessionOwner(extra as ToolAuthExtra, sessionId);
         await processManager.write(sessionId, chars, closeStdin);
         if (closeStdin) {
           await processManager.waitForExit(sessionId, yieldTimeMs);
@@ -272,16 +340,17 @@ export function registerExecTools(
       annotations: TOOL_ANNOTATIONS.readOnlyClosed,
       _meta: authMetadata,
     },
-    async ({ sessionId, afterSeq, waitMs, maxOutputBytes }) =>
-      runTool(async () =>
-        processResult(
+    async ({ sessionId, afterSeq, waitMs, maxOutputBytes }, extra) =>
+      runTool(async () => {
+        capabilityGate.assertSessionOwner(extra as ToolAuthExtra, sessionId);
+        return processResult(
           await processManager.read(sessionId, {
             afterSeq,
             waitMs,
             maxOutputBytes,
           }),
-        ),
-      ),
+        );
+      }),
   );
 
   server.registerTool(
@@ -309,10 +378,11 @@ export function registerExecTools(
       annotations: TOOL_ANNOTATIONS.destructiveNonIdempotentClosed,
       _meta: authMetadata,
     },
-    async ({ sessionId, signal, graceMs }) =>
-      runTool(async () =>
-        processResult(await processManager.terminate(sessionId, signal, graceMs)),
-      ),
+    async ({ sessionId, signal, graceMs }, extra) =>
+      runTool(async () => {
+        capabilityGate.assertSessionOwner(extra as ToolAuthExtra, sessionId);
+        return processResult(await processManager.terminate(sessionId, signal, graceMs));
+      }),
   );
 
   server.registerTool(
@@ -324,6 +394,15 @@ export function registerExecTools(
       annotations: TOOL_ANNOTATIONS.readOnlyClosed,
       _meta: authMetadata,
     },
-    async () => runTool(() => ({ processes: processManager.list() })),
+    async (_args, extra) =>
+      runTool(() => {
+        const visible = capabilityGate.visibleSessionIds(extra as ToolAuthExtra);
+        const processes = processManager.list();
+        return {
+          processes: visible
+            ? processes.filter((process) => visible.has(process.sessionId))
+            : processes,
+        };
+      }),
   );
 }
