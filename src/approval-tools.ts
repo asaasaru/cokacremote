@@ -68,7 +68,7 @@ export function registerApprovalTools(
         networkTarget: z.string().optional(),
         reason: z.string().max(1000).optional(),
       },
-      annotations: TOOL_ANNOTATIONS.additiveIdempotentClosed,
+      annotations: TOOL_ANNOTATIONS.additiveNonIdempotentClosed,
       _meta: authMetadata,
     },
     async (
