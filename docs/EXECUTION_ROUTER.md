@@ -80,3 +80,14 @@ Live adapters should convert verified provider/transport observations through a 
 Structured error codes are preferred. A bare HTTP 403 is **not** automatically treated as `POLICY_DENIED`; explicit policy evidence such as `OUTSIDE_APPROVED_WORKSPACE` or `SCOPE_DENIED` is required. Unknown failures degrade the backend instead of inventing an authentication, subscription, or policy cause.
 
 This prevents the router from either bypassing a real policy denial or unnecessarily disabling fallback because of an ambiguous provider error.
+
+
+## Trusted health ingestion
+
+External executors do not become healthy merely because an MCP caller says so. A trusted local adapter or sidecar can report verified observations to:
+
+`POST /internal/backend-health`
+
+The route is disabled unless `MCP_BACKEND_HEALTH_KEY` is configured. Reports must provide that separate secret in the `x-coka-health-key` header. The route accepts only external backends (`agentcore.antigravity`, `agentcore.native`, `remote_desktop`, `tv_bridge`); reporters cannot override `coka_local`.
+
+The HTTP route feeds observations through `classifyBackendObservation()`, updates `BackendHealthRegistry`, and advances the backend circuit breaker. It is intentionally separate from MCP authentication and capability grants.
