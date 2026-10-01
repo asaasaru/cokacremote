@@ -61,6 +61,7 @@ export interface CapabilityGrant {
   capabilities: Capability[];
   paths?: string[];
   commands?: string[];
+  commandSpecs?: CommandSpec[];
   networkTargets?: string[];
   issuedAt: number;
   expiresAt: number;
@@ -90,7 +91,26 @@ function isWithin(candidate: string, root: string): boolean {
 }
 
 function commandName(spec: CommandSpec | undefined): string | undefined {
-  return spec ? path.basename(spec.executable) : undefined;
+  if (!spec) {
+    return undefined;
+  }
+  const executable = spec.executable.trim();
+  if (
+    !executable ||
+    executable !== path.basename(executable) ||
+    executable.includes("/") ||
+    executable.includes("\\")
+  ) {
+    return undefined;
+  }
+  return executable;
+}
+
+function commandSpecMatches(request: CommandSpec, approved: CommandSpec): boolean {
+  return (
+    commandName(request) === commandName(approved) &&
+    JSON.stringify(request.args ?? []) === JSON.stringify(approved.args ?? [])
+  );
 }
 
 function matchesConstraints(
@@ -143,11 +163,20 @@ function grantMatches(request: CapabilityRequest, grant: CapabilityGrant, now: n
   if (!grant.capabilities.includes(request.capability)) {
     return false;
   }
-  return matchesConstraints(request, {
+  if (!matchesConstraints(request, {
     paths: grant.paths,
     commands: grant.commands,
     networkTargets: grant.networkTargets,
-  });
+  })) {
+    return false;
+  }
+  if (
+    grant.commandSpecs?.length &&
+    (!request.command || !grant.commandSpecs.some((approved) => commandSpecMatches(request.command!, approved)))
+  ) {
+    return false;
+  }
+  return true;
 }
 
 export class CapabilityPolicyEngine {
