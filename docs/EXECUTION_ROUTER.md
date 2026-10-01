@@ -114,7 +114,7 @@ MCP_CAPABILITY_PROJECT=vic-tvauto
 - process sessions started by `exec_argv` are bound to the authenticated subject for follow-up reads/termination; custom `env`, initial stdin, and interactive `write_stdin` are disabled in bounded mode because those channels are not part of the exact argv grant;
 - bounded child processes receive only a small non-secret environment allowlist (`PATH`, home/temp/locale/shell/user and required Windows equivalents) instead of inheriting the MCP server environment;
 - copy/move multi-path authorization is preflighted atomically so a grant is not consumed when another required path/capability is blocked;
-- `execution_route` is a non-consuming preview; `execution_request` creates the approval request or returns a bounded executor handoff; the actual executor boundary consumes/enforces the grant.
+- `execution_route` is a non-consuming preview; `execution_request` creates the approval request or returns a bounded executor handoff. For external AgentCore/RDC/TV Bridge handoffs, the matching grant use is consumed atomically when the handoff is issued because the downstream transport has no authority to retain or re-consume the coka grant. For `coka_local`, the grant remains enforced/consumed at the local executor boundary.
 
 The `pine-tvauto` profile keeps TradingView and TVauto host access approval-bound. Its resilient CDP target set is limited to `127.0.0.1:9229`, `:9333`, and `:9222`; the REST bridge is limited to `127.0.0.1:5300`. TVauto destructive filesystem and package-install actions are also approval-bound rather than permanently denied.
 
