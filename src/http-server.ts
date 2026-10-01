@@ -17,6 +17,12 @@ import type { AppConfig } from "./config.js";
 import { errorMessage } from "./errors.js";
 import { createMcpServer, type McpServices } from "./mcp-server.js";
 import { OAUTH_SCOPES, RemoteDevOAuthProvider } from "./oauth.js";
+import {
+  CONTROL_PLANE_CONTRACT_FINGERPRINT,
+  CONTROL_PLANE_CONTRACT_REVISION,
+  CONTROL_PLANE_SCHEMA_COMPATIBILITY,
+  STABLE_CONTROL_PLANE_TOOLS,
+} from "./tool-contract.js";
 
 interface ActiveRequest {
   server: ReturnType<typeof createMcpServer>;
@@ -169,6 +175,11 @@ export async function startHttpServer(
       executionRouterReady: true,
       agentcoreBrokerReady: services.agentcoreBroker.enabled(),
       registeredAgentCoreDevices: services.agentcoreBroker.activeDevices().length,
+      controlPlaneContractRevision: CONTROL_PLANE_CONTRACT_REVISION,
+      controlPlaneContractFingerprint: CONTROL_PLANE_CONTRACT_FINGERPRINT,
+      stableControlPlaneTools: [...STABLE_CONTROL_PLANE_TOOLS],
+      controlPlaneSchemaCompatibility: CONTROL_PLANE_SCHEMA_COMPATIBILITY,
+      toolListChangedSupported: true,
     });
   });
 
