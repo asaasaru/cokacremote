@@ -25,6 +25,12 @@ import { getPolicyProfile } from "./policy-profiles.js";
 import { RecoveryWorkflow } from "./recovery-workflow.js";
 import { runTool } from "./tool-result.js";
 import { TOOL_ANNOTATIONS, toolAuthMetadata } from "./tool-metadata.js";
+import {
+  CONTROL_PLANE_CONTRACT_FINGERPRINT,
+  CONTROL_PLANE_CONTRACT_REVISION,
+  CONTROL_PLANE_SCHEMA_COMPATIBILITY,
+  STABLE_CONTROL_PLANE_TOOLS,
+} from "./tool-contract.js";
 
 const backendSchema = z.enum([
   "agentcore.antigravity",
@@ -49,6 +55,8 @@ const taskSchema = z.enum([
 
 const modeSchema = z.enum(["auto", "cpaa", "rdc", "tvbridge", "local"]);
 
+const readOperationSchema = z.enum(["stat", "sha256", "text", "git_status"]);
+
 const capabilitySchema = z.enum([
   "workspace.read",
   "workspace.write",
@@ -67,6 +75,18 @@ const capabilitySchema = z.enum([
   "browser.personal_profile",
   "host.unrestricted",
 ]);
+
+function parseSupportedValue<T extends string>(
+  schema: z.ZodEnum<Record<string, T>>,
+  value: string,
+  label: string,
+): T {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error(`Unsupported ${label}: ${value}`);
+  }
+  return parsed.data;
+}
 
 function subjectId(extra: { authInfo?: { clientId?: string } }): string {
   const value = extra.authInfo?.clientId?.trim();
@@ -139,6 +159,16 @@ export function registerExecutionTools(
           };
         }
         return {
+          contract: {
+            revision: CONTROL_PLANE_CONTRACT_REVISION,
+            fingerprint: CONTROL_PLANE_CONTRACT_FINGERPRINT,
+            stableTools: [...STABLE_CONTROL_PLANE_TOOLS],
+            compatibility: CONTROL_PLANE_SCHEMA_COMPATIBILITY,
+            supportedCapabilities: [...capabilitySchema.options],
+            supportedTasks: [...taskSchema.options],
+            supportedModes: [...modeSchema.options],
+            supportedReadOperations: [...readOperationSchema.options],
+          },
           backends: services.health.list().map((record) => ({
             ...record,
             circuit: services.circuits.snapshot(record.backend),
@@ -162,13 +192,13 @@ export function registerExecutionTools(
         profileId: z.string().default("pine-tvauto").describe("Capability policy profile used before any backend is selected."),
         projectId: z.string().min(1).max(128).describe("Stable project identifier bound to the capability decision."),
         providerLabel: z.string().min(1).max(64).optional().describe("Optional human-readable provider label; authorization uses the authenticated client identity."),
-        capability: capabilitySchema.describe("Bounded capability to evaluate before routing."),
+        capability: z.string().min(1).max(64).describe("Capability identifier validated against the current server allowlist."),
         path: z.string().optional().describe("Exact host or workspace path involved in the capability request, when applicable."),
         commandExecutable: z.string().regex(/^[A-Za-z0-9._+-]+$/).optional().describe("Bare executable name for an exact bounded command request, when applicable."),
         commandArgs: z.array(z.string().max(2000)).max(64).optional().describe("Exact argument vector bound to commandExecutable."),
         networkTarget: z.string().optional().describe("Exact host:port target involved in the capability request, when applicable."),
-        task: taskSchema.describe("Logical execution task used to select an eligible backend."),
-        mode: modeSchema.default("auto").describe("Optional route restriction: auto, cpaa, rdc, tvbridge, or local."),
+        task: z.string().min(1).max(64).describe("Execution task identifier validated against the current server allowlist."),
+        mode: z.string().min(1).max(32).default("auto").describe("Route-mode identifier validated against the current server allowlist."),
       },
       annotations: TOOL_ANNOTATIONS.readOnlyClosed,
       _meta: authMetadata,
@@ -192,9 +222,12 @@ export function registerExecutionTools(
         if (commandArgs?.length && !commandExecutable) {
           throw new Error("commandArgs requires commandExecutable");
         }
+        const validatedCapability = parseSupportedValue(capabilitySchema, capability, "capability") as Capability;
+        const validatedTask = parseSupportedValue(taskSchema, task, "task") as ExecutionTaskKind;
+        const validatedMode = parseSupportedValue(modeSchema, mode, "mode") as ExecutionMode;
 
         const request: CapabilityRequest = {
-          capability: capability as Capability,
+          capability: validatedCapability,
           subjectId: subjectId(extra),
           providerLabel,
           projectId,
@@ -212,8 +245,8 @@ export function registerExecutionTools(
           services.fallback,
         );
         const route = router.route({
-          task: task as ExecutionTaskKind,
-          mode: mode as ExecutionMode,
+          task: validatedTask,
+          mode: validatedMode,
           policyDecision: policy.decision,
         });
         return {
@@ -239,22 +272,24 @@ export function registerExecutionTools(
         profileId: z.string().default("pine-tvauto").describe("Capability policy profile used before execution."),
         projectId: z.string().min(1).max(128).describe("Stable project identifier bound to the capability decision."),
         providerLabel: z.string().min(1).max(64).optional().describe("Optional human-readable provider label."),
-        capability: capabilitySchema.describe("Bounded capability requested for this exact action."),
+        capability: z.string().min(1).max(64).describe("Capability identifier validated against the current server allowlist."),
         path: z.string().optional().describe("Exact path involved in the action, when applicable."),
         commandExecutable: z.string().regex(/^[A-Za-z0-9._+-]+$/).optional().describe("Bare executable name for an exact command approval."),
         commandArgs: z.array(z.string().max(2000)).max(64).optional().describe("Exact argv bound to the approval."),
         networkTarget: z.string().optional().describe("Exact host:port target, when applicable."),
-        task: taskSchema.describe("Logical execution task."),
-        mode: modeSchema.default("auto").describe("Route restriction: auto, cpaa, rdc, tvbridge, or local."),
+        task: z.string().min(1).max(64).describe("Execution task identifier validated against the current server allowlist."),
+        mode: z.string().min(1).max(32).default("auto").describe("Route-mode identifier validated against the current server allowlist."),
         reason: z.string().max(1000).optional().describe("Short reason shown to the human approver."),
         planId: z.string().min(1).max(255).optional().describe("Canonical plan basename for AgentCore work."),
         planSha256: z.string().regex(/^[a-fA-F0-9]{64}$/).optional().describe("SHA-256 of the canonical plan."),
         instruction: z.string().min(1).max(20_000).optional().describe("Bounded instruction delivered to AgentCore after policy approval."),
         testIds: z.array(z.string().min(1).max(256)).max(100).optional().describe("Approved AgentCore test IDs."),
         readOperation: z
-          .enum(["stat", "sha256", "text", "git_status"])
+          .string()
+          .min(1)
+          .max(32)
           .optional()
-          .describe("Fixed read-only AgentCore operation. Valid only with task=project.read."),
+          .describe("Read-operation identifier validated against the current server allowlist; valid only with task=project.read."),
         maxBytes: z
           .number()
           .int()
@@ -292,27 +327,33 @@ export function registerExecutionTools(
         if (commandArgs?.length && !commandExecutable) {
           throw new Error("commandArgs requires commandExecutable");
         }
+        const validatedCapability = parseSupportedValue(capabilitySchema, capability, "capability") as Capability;
+        const validatedTask = parseSupportedValue(taskSchema, task, "task") as ExecutionTaskKind;
+        const validatedMode = parseSupportedValue(modeSchema, mode, "mode") as ExecutionMode;
+        const validatedReadOperation = readOperation
+          ? parseSupportedValue(readOperationSchema, readOperation, "readOperation")
+          : undefined;
         if ((planId && !planSha256) || (!planId && planSha256)) {
           throw new Error("planId and planSha256 must be provided together");
         }
         if (
-          ["project.write", "project.test", "project.exec"].includes(task) &&
+          ["project.write", "project.test", "project.exec"].includes(validatedTask) &&
           (!planId || !planSha256 || !instruction)
         ) {
           throw new Error("Mutating AgentCore tasks require planId, planSha256, and instruction");
         }
-        if (readOperation && task !== "project.read") {
+        if (validatedReadOperation && validatedTask !== "project.read") {
           throw new Error("readOperation is valid only with task=project.read");
         }
-        if (maxBytes && readOperation !== "text") {
+        if (maxBytes && validatedReadOperation !== "text") {
           throw new Error("maxBytes is valid only with readOperation=text");
         }
-        if (task === "project.read" && readOperation === "git_status" && !path) {
+        if (validatedTask === "project.read" && validatedReadOperation === "git_status" && !path) {
           throw new Error("git_status requires the approved project root path");
         }
 
         const request: CapabilityRequest = {
-          capability: capability as Capability,
+          capability: validatedCapability,
           subjectId: subjectId(extra),
           providerLabel,
           projectId,
@@ -360,8 +401,8 @@ export function registerExecutionTools(
           services.fallback,
         );
         const route = router.route({
-          task: task as ExecutionTaskKind,
-          mode: mode as ExecutionMode,
+          task: validatedTask,
+          mode: validatedMode,
           policyDecision: policy.decision,
         });
 
@@ -419,8 +460,8 @@ export function registerExecutionTools(
               subjectId: request.subjectId,
               backend: agentcoreBackend,
               projectId,
-              task,
-              capability,
+              task: validatedTask,
+              capability: validatedCapability,
               path,
               command: request.command
                 ? { executable: request.command.executable, args: request.command.args ?? [] }
@@ -432,7 +473,7 @@ export function registerExecutionTools(
               planSha256,
               instruction,
               testIds,
-              readOperation,
+              readOperation: validatedReadOperation,
               maxBytes,
             });
             return {
