@@ -53,7 +53,7 @@ function requestSummary(broker: ApprovalBroker, requestId: string): string | und
     <p><strong>OAuth client:</strong> <code>${escapeHtml(req.subjectId)}</code></p>
     ${req.providerLabel ? `<p><strong>표시 provider:</strong> <code>${escapeHtml(req.providerLabel)}</code></p>` : ""}
     ${req.path ? `<p><strong>경로:</strong> <code>${escapeHtml(req.path)}</code></p>` : ""}
-    ${req.command ? `<p><strong>명령:</strong> <code>${escapeHtml(path.basename(req.command.executable))}</code></p>` : ""}
+    ${req.command ? `<p><strong>명령:</strong> <code>${escapeHtml(path.basename(req.command.executable))} ${escapeHtml((req.command.args ?? []).join(" "))}</code></p>` : ""}
     ${req.networkTarget ? `<p><strong>네트워크:</strong> <code>${escapeHtml(req.networkTarget)}</code></p>` : ""}
     ${req.reason ? `<p><strong>요청 사유:</strong> ${escapeHtml(req.reason)}</p>` : ""}
     <p><strong>상태:</strong> ${escapeHtml(pending.status)}</p>
@@ -150,6 +150,9 @@ export function registerApprovalRoutes(
       capabilities: [req.capability],
       paths: req.path ? [req.path] : undefined,
       commands: req.command ? [path.basename(req.command.executable)] : undefined,
+      commandSpecs: req.command
+        ? [{ executable: path.basename(req.command.executable), args: [...(req.command.args ?? [])] }]
+        : undefined,
       networkTargets: req.networkTarget ? [req.networkTarget] : undefined,
       ttlMs: Number.isFinite(ttlMs) ? ttlMs : 30 * 60_000,
       maxUses: Number.isFinite(maxUses) ? maxUses : 10,
