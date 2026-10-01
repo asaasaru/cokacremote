@@ -42,6 +42,7 @@ export function createServices(config: AppConfig): McpServices {
       maxChunkBytes: config.maxFileChunkBytes,
       maxEditFileBytes: config.maxEditFileBytes,
       maxOutputBytes: config.maxOutputBytes,
+      canonicalizePaths: config.capabilityMode === "bounded",
     }),
     approvalBroker,
     health,
