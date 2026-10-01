@@ -8,7 +8,8 @@ import { ApprovalBroker } from "../src/approval-broker.js";
 import { pineTvautoProfile } from "../src/policy-profiles.js";
 
 const now = 1_000_000;
-const provider = "chatgpt";
+const subjectId = "oauth-client-chatgpt";
+const providerLabel = "chatgpt";
 const projectId = "vic-tvauto";
 
 function grant(overrides: Partial<CapabilityGrant> = {}): CapabilityGrant {
@@ -16,7 +17,8 @@ function grant(overrides: Partial<CapabilityGrant> = {}): CapabilityGrant {
     grantId: "g1",
     issuedBy: "human",
     approvalChannel: "local-ui",
-    provider,
+    subjectId,
+    providerLabel,
     projectId,
     capabilities: ["host.read"],
     paths: ["/Users/vicmac/DevMac/Biz/TVauto"],
@@ -33,7 +35,8 @@ describe("CapabilityPolicyEngine", () => {
     const engine = new CapabilityPolicyEngine(pineTvautoProfile);
     expect(engine.evaluate({
       capability: "workspace.read",
-      provider,
+      subjectId,
+      providerLabel,
       projectId,
       path: "/work/sandbox/demo/README.md",
     }, now).decision).toBe("ALLOW");
@@ -43,7 +46,8 @@ describe("CapabilityPolicyEngine", () => {
     const engine = new CapabilityPolicyEngine(pineTvautoProfile);
     expect(engine.evaluate({
       capability: "host.read",
-      provider,
+      subjectId,
+      providerLabel,
       projectId,
       path: "/Users/vicmac/DevMac/Biz/TVauto/README.md",
     }, now).decision).toBe("APPROVAL_REQUIRED");
@@ -54,7 +58,8 @@ describe("CapabilityPolicyEngine", () => {
     const engine = new CapabilityPolicyEngine(pineTvautoProfile, [g]);
     const decision = engine.evaluate({
       capability: "host.read",
-      provider,
+      subjectId,
+      providerLabel,
       projectId,
       path: "/Users/vicmac/DevMac/Biz/TVauto/README.md",
     }, now);
@@ -64,11 +69,15 @@ describe("CapabilityPolicyEngine", () => {
     expect(g.uses).toBe(1);
   });
 
-  it("does not allow a grant issued to another provider", () => {
-    const engine = new CapabilityPolicyEngine(pineTvautoProfile, [grant({ provider: "claude" })]);
+  it("does not allow a grant issued to another OAuth client", () => {
+    const engine = new CapabilityPolicyEngine(
+      pineTvautoProfile,
+      [grant({ subjectId: "oauth-client-claude", providerLabel: "claude" })],
+    );
     expect(engine.evaluate({
       capability: "host.read",
-      provider,
+      subjectId,
+      providerLabel,
       projectId,
       path: "/Users/vicmac/DevMac/Biz/TVauto/README.md",
     }, now).decision).toBe("APPROVAL_REQUIRED");
@@ -78,7 +87,8 @@ describe("CapabilityPolicyEngine", () => {
     const engine = new CapabilityPolicyEngine(pineTvautoProfile, [grant()]);
     expect(engine.evaluate({
       capability: "host.read",
-      provider,
+      subjectId,
+      providerLabel,
       projectId,
       path: "/Users/vicmac/.ssh/id_ed25519",
     }, now).decision).toBe("DENY");
@@ -90,8 +100,8 @@ describe("CapabilityPolicyEngine", () => {
       paths: undefined,
     });
     const engine = new CapabilityPolicyEngine(pineTvautoProfile, [dangerous]);
-    expect(engine.evaluate({ capability: "secrets.read", provider, projectId }, now).decision).toBe("DENY");
-    expect(engine.evaluate({ capability: "real_trading", provider, projectId }, now).decision).toBe("DENY");
+    expect(engine.evaluate({ capability: "secrets.read", subjectId, providerLabel, projectId }, now).decision).toBe("DENY");
+    expect(engine.evaluate({ capability: "real_trading", subjectId, providerLabel, projectId }, now).decision).toBe("DENY");
   });
 
   it("requires exact loopback targets", () => {
@@ -104,14 +114,16 @@ describe("CapabilityPolicyEngine", () => {
 
     expect(engine.evaluate({
       capability: "loopback.http",
-      provider,
+      subjectId,
+      providerLabel,
       projectId,
       networkTarget: "127.0.0.1:5300",
     }, now).decision).toBe("ALLOW");
 
     expect(engine.evaluate({
       capability: "loopback.http",
-      provider,
+      subjectId,
+      providerLabel,
       projectId,
       networkTarget: "127.0.0.1:9999",
     }, now).decision).toBe("DENY");
@@ -123,7 +135,8 @@ describe("CapabilityPolicyEngine", () => {
     const engine = new CapabilityPolicyEngine(pineTvautoProfile, [expired, exhausted]);
     expect(engine.evaluate({
       capability: "host.read",
-      provider,
+      subjectId,
+      providerLabel,
       projectId,
       path: "/Users/vicmac/DevMac/Biz/TVauto/README.md",
     }, now).decision).toBe("APPROVAL_REQUIRED");
@@ -131,11 +144,12 @@ describe("CapabilityPolicyEngine", () => {
 });
 
 describe("ApprovalBroker", () => {
-  it("creates a provider/project-bound grant only through trusted approval API", () => {
+  it("creates a subject/project-bound grant only through trusted approval API", () => {
     const broker = new ApprovalBroker(60_000, 600_000, 20);
     const pending = broker.requestApproval({
       capability: "tradingview.cdp",
-      provider,
+      subjectId,
+      providerLabel,
       projectId,
       networkTarget: "127.0.0.1:9229",
     }, now);
@@ -143,7 +157,8 @@ describe("ApprovalBroker", () => {
     const g = broker.approveFromTrustedChannel(pending.requestId, {
       approvedBy: "operator",
       approvalChannel: "local-ui",
-      provider,
+      subjectId,
+      providerLabel,
       projectId,
       capabilities: ["tradingview.cdp"],
       networkTargets: ["127.0.0.1:9229"],
@@ -152,17 +167,18 @@ describe("ApprovalBroker", () => {
     }, now);
 
     expect(g.issuedBy).toBe("human");
-    expect(g.provider).toBe(provider);
+    expect(g.subjectId).toBe(subjectId);
     expect(g.projectId).toBe(projectId);
     expect(g.expiresAt).toBe(now + 300_000);
     expect(broker.getPending(pending.requestId)?.status).toBe("approved");
   });
 
-  it("cannot approve a request for a different provider or project", () => {
+  it("cannot approve a request for a different OAuth client or project", () => {
     const broker = new ApprovalBroker();
     const pending = broker.requestApproval({
       capability: "host.exec",
-      provider,
+      subjectId,
+      providerLabel,
       projectId,
       path: "/Users/vicmac/DevMac/Biz/TVauto",
     }, now);
@@ -170,12 +186,13 @@ describe("ApprovalBroker", () => {
     expect(() => broker.approveFromTrustedChannel(pending.requestId, {
       approvedBy: "operator",
       approvalChannel: "operator-cli",
-      provider: "claude",
+      subjectId: "oauth-client-claude",
+      providerLabel: "claude",
       projectId,
       capabilities: ["host.exec"],
       paths: ["/Users/vicmac/DevMac/Biz/TVauto"],
       ttlMs: 1_000,
       maxUses: 1,
-    }, now)).toThrow(/provider\/project/);
+    }, now)).toThrow(/subject\/project/);
   });
 });
