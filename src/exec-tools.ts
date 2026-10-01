@@ -253,6 +253,7 @@ export function registerExecTools(
       maxOutputBytes,
     }, extra) =>
       runTool(async () => {
+        capabilityGate.assertExactExecPayload(env, stdin);
         const cwd = fileService.resolve(".", workdir);
         capabilityGate.authorizeExec(extra as ToolAuthExtra, cwd, { executable, args });
         const sessionId = processManager.start({
@@ -275,7 +276,7 @@ export function registerExecTools(
     {
       title: "Write to process stdin",
       description:
-        "Write text to an existing process session, optionally close stdin, then return current process state and retained output with sequence numbers greater than afterSeq.",
+        "Write text to an existing process session, optionally close stdin, then return current process state and retained output with sequence numbers greater than afterSeq. Disabled in bounded capability mode because interactive input is not part of the exact command grant.",
       inputSchema: {
         sessionId: sessionIdSchema,
         chars: z
@@ -303,6 +304,7 @@ export function registerExecTools(
     },
     async ({ sessionId, chars, closeStdin, afterSeq, yieldTimeMs, maxOutputBytes }, extra) =>
       runTool(async () => {
+        capabilityGate.blockInteractiveStdin();
         capabilityGate.assertSessionOwner(extra as ToolAuthExtra, sessionId);
         await processManager.write(sessionId, chars, closeStdin);
         if (closeStdin) {
