@@ -267,6 +267,10 @@ describe("remote development MCP server", () => {
       capabilityProfileId: "coka-base",
       capabilityProjectId: "cokacremote",
       unrestrictedHostAccess: true,
+      controlPlaneContractRevision: "2026-10-02.1",
+      stableControlPlaneTools: ["execution_request", "execution_status"],
+      controlPlaneSchemaCompatibility: "stable-tool-names-server-validated-values",
+      toolListChangedSupported: true,
     });
   });
 });
