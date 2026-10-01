@@ -14,6 +14,7 @@ import { createServices } from "../src/mcp-server.js";
 
 const ALL_TOOLS = [
   "apply_patch",
+  "approval_status",
   "chmod_path",
   "copy_path",
   "download_file",
@@ -27,6 +28,8 @@ const ALL_TOOLS = [
   "read_process",
   "remove_path",
   "replace_in_file",
+  "request_capability",
+  "revoke_capability",
   "run_script",
   "stat_path",
   "terminate_process",
@@ -40,6 +43,7 @@ type ToolResult = Awaited<ReturnType<Client["callTool"]>>;
 
 const EXPECTED_ANNOTATIONS = {
   apply_patch: [false, true, false, false],
+  approval_status: [true, false, true, false],
   chmod_path: [false, true, true, false],
   copy_path: [false, true, true, false],
   download_file: [true, false, true, false],
@@ -52,6 +56,8 @@ const EXPECTED_ANNOTATIONS = {
   read_file: [true, false, true, false],
   read_process: [true, false, true, false],
   remove_path: [false, true, true, false],
+  request_capability: [false, false, false, false],
+  revoke_capability: [false, true, true, false],
   replace_in_file: [false, true, false, false],
   run_script: [false, true, false, true],
   stat_path: [true, false, true, false],
@@ -191,6 +197,28 @@ describe.sequential("all registered MCP tools", () => {
         openWorldHint,
       });
     }
+  });
+
+  it("creates subject-bound capability approval requests", async () => {
+    const requested = await callOk("request_capability", {
+      profileId: "pine-tvauto",
+      projectId: "vic-tvauto",
+      providerLabel: "chatgpt",
+      capability: "host.read",
+      path: "/Users/vicmac/DevMac/Biz/TVauto/README.md",
+      reason: "integration test only",
+    });
+    expect(requested.decision).toBe("APPROVAL_REQUIRED");
+    expect(typeof requested.requestId).toBe("string");
+
+    const status = await callOk("approval_status", {
+      requestId: requested.requestId,
+    });
+    expect(status.status).toBe("pending");
+
+    expect(await callError("revoke_capability", {
+      grantId: randomUUID(),
+    })).toContain("Unknown grant");
   });
 
   it("executes, polls, writes to, times out, lists, and terminates processes", async () => {

@@ -1,7 +1,8 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 import type { RequestHandler } from "express";
 import type { OAuthTokenVerifier } from "@modelcontextprotocol/sdk/server/auth/provider.js";
+import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 
 import type { AppConfig } from "./config.js";
 
@@ -20,6 +21,14 @@ function oauthResourceMetadataUrl(config: AppConfig): string {
   return new URL(`/.well-known/oauth-protected-resource${suffix}`, resource).href;
 }
 
+function attachAuthInfo(request: Parameters<RequestHandler>[0], info: AuthInfo): void {
+  (request as Parameters<RequestHandler>[0] & { auth?: AuthInfo }).auth = info;
+}
+
+function staticClientId(token: string): string {
+  return `static:${createHash("sha256").update(token).digest("hex").slice(0, 24)}`;
+}
+
 export function createBearerAuth(
   config: AppConfig,
   oauthVerifier?: OAuthTokenVerifier,
@@ -34,6 +43,11 @@ export function createBearerAuth(
     const match = authorization?.match(/^Bearer\s+(.+)$/i);
     const suppliedToken = match?.[1];
     if (suppliedToken && config.authToken && tokensEqual(suppliedToken, config.authToken)) {
+      attachAuthInfo(request, {
+        token: suppliedToken,
+        clientId: staticClientId(suppliedToken),
+        scopes: ["mcp:tools"],
+      });
       next();
       return;
     }
@@ -48,6 +62,7 @@ export function createBearerAuth(
           authInfo.resource?.href === expectedResource &&
           authInfo.scopes.includes("mcp:tools")
         ) {
+          attachAuthInfo(request, authInfo);
           next();
           return;
         }

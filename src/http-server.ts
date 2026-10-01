@@ -9,6 +9,7 @@ import {
 } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import express, { type Request, type Response } from "express";
 
+import { registerApprovalRoutes } from "./approval-http.js";
 import { createBearerAuth, createHostValidation } from "./auth.js";
 import type { AppConfig } from "./config.js";
 import { errorMessage } from "./errors.js";
@@ -97,6 +98,7 @@ export async function startHttpServer(
     next();
   });
   app.use(createHostValidation(config));
+  registerApprovalRoutes(app, config, services.approvalBroker);
 
   const activeRequests = new Set<ActiveRequest>();
   let activeMcpRequests = 0;
@@ -150,6 +152,7 @@ export async function startHttpServer(
       managedProcesses: services.processManager.list().length,
       unrestrictedHostAccess: true,
       oauthEnabled: config.oauthEnabled,
+      activeCapabilityGrants: services.approvalBroker.activeGrants().length,
     });
   });
 
