@@ -159,6 +159,21 @@ describe("ExecutionRouter", () => {
     }, 200).decision).toBe("UNAVAILABLE");
   });
 
+  it("treats unknown health as a bounded live probe instead of offline failure", () => {
+    const registry = new BackendHealthRegistry(undefined, 0);
+    const router = new ExecutionRouter(registry, new BackendCircuitBreaker());
+
+    expect(router.route({
+      task: "project.read",
+      mode: "rdc",
+      policyDecision: "ALLOW",
+    }, 200)).toMatchObject({
+      decision: "PROBE",
+      backend: "remote_desktop",
+      degraded: true,
+    });
+  });
+
   it("prefers healthy fallback over a degraded first choice", () => {
     const registry = healthyRegistry();
     registry.update("agentcore.antigravity", "DEGRADED", {
