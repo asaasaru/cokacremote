@@ -18,6 +18,7 @@ const ALL_TOOLS = [
   "chmod_path",
   "copy_path",
   "download_file",
+  "exec_argv",
   "exec_command",
   "execution_recovery",
   "execution_route",
@@ -50,6 +51,7 @@ const EXPECTED_ANNOTATIONS = {
   chmod_path: [false, true, true, false],
   copy_path: [false, true, true, false],
   download_file: [true, false, true, false],
+  exec_argv: [false, true, false, false],
   exec_command: [false, true, false, true],
   execution_recovery: [true, false, true, false],
   execution_route: [true, false, true, false],
@@ -284,6 +286,13 @@ describe.sequential("all registered MCP tools", () => {
       login: false,
       yieldTimeMs: 3000,
     })).toMatchObject({ completed: true, exitCode: 0, stdout: "shell-ok" });
+
+    expect(await callOk("exec_argv", {
+      executable: "node",
+      args: ["-e", "process.stdout.write('argv-ok')"],
+      workdir: testRoot,
+      yieldTimeMs: 3000,
+    })).toMatchObject({ completed: true, exitCode: 0, stdout: "argv-ok" });
 
     const bounded = await callOk("exec_command", {
       cmd: "node -e \"process.stdout.write('x'.repeat(20000))\"",
