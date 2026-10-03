@@ -179,7 +179,7 @@ export async function startHttpServer(
       controlPlaneContractFingerprint: CONTROL_PLANE_CONTRACT_FINGERPRINT,
       stableControlPlaneTools: [...STABLE_CONTROL_PLANE_TOOLS],
       controlPlaneSchemaCompatibility: CONTROL_PLANE_SCHEMA_COMPATIBILITY,
-      toolListChangedSupported: true,
+      toolListChangedSupported: false,
     });
   });
 
