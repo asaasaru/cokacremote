@@ -67,7 +67,7 @@ export class CapabilityGate {
   }
 
   private evaluate(request: CapabilityRequest, consume: boolean): PolicyDecision {
-    const profile = getPolicyProfile(this.config.capabilityProfileId);
+    const profile = getPolicyProfile(this.config.capabilityProfileId, this.config.capabilityHostRoots);
     const engine = new CapabilityPolicyEngine(profile, this.broker.activeGrants());
     return consume ? engine.evaluate(request) : engine.evaluatePreview(request);
   }
