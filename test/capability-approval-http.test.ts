@@ -225,6 +225,45 @@ describe.sequential("capability approval HTTP flow", () => {
     expect(html).toContain("커널 수준으로 샌드박스");
   });
 
+  it("fails closed on unknown approval decisions and never caches approval pages", async () => {
+    const requested = await client.callTool({
+      name: "request_capability",
+      arguments: {
+        profileId: "pine-tvauto",
+        projectId: "vic-tvauto",
+        providerLabel: "chatgpt",
+        capability: "host.read",
+        path: "/Users/vicmac/DevMac/Biz/TVauto/config.yaml",
+        reason: "verify fail-closed approval form handling",
+      },
+    });
+    const data = requested.structuredContent as Record<string, unknown>;
+    expect(data.decision).toBe("APPROVAL_REQUIRED");
+    const requestId = String(data.requestId);
+
+    const page = await fetch(new URL(`/approvals/${requestId}`, baseUrl));
+    expect(page.status).toBe(200);
+    expect(page.headers.get("cache-control")).toContain("no-store");
+
+    const malformed = await fetch(new URL(`/approvals/${requestId}`, baseUrl), {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        access_key: "operator-approval-key",
+        decision: "approve-anything",
+        ttl: "300000",
+        max_uses: "1",
+      }),
+    });
+    expect(malformed.status).toBe(400);
+    expect(services.approvalBroker.getPending(requestId)?.status).toBe("pending");
+    expect(
+      services.approvalBroker.activeGrants().some(
+        (grant) => grant.projectId === "vic-tvauto" && grant.paths?.includes("/Users/vicmac/DevMac/Biz/TVauto/config.yaml"),
+      ),
+    ).toBe(false);
+  });
+
   it("never turns a hard-denied request into an approval prompt", async () => {
     const denied = await client.callTool({
       name: "request_capability",

@@ -150,3 +150,11 @@ Mutating AgentCore requests require `planId`, `planSha256`, and a bounded `instr
 No inbound host shell or filesystem server is introduced. RDC remains bootstrap/repair/GUI-only and may be intentionally offline during normal operation.
 
 The non-secret `/health` fields `executionRouterReady`, `agentcoreBrokerReady`, and `registeredAgentCoreDevices` report control-plane readiness. A branch or PR is not considered deployed until these fields are live and a bounded AgentCore round-trip succeeds with RDC intentionally stopped.
+
+## Stable MCP control-plane contract
+
+`execution_request` and `execution_status` are compatibility-critical control-plane tools. They are permanent names: do not remove, rename, or conditionally register them in a compatible release. Runtime/backend readiness belongs in the tool result, not in whether the tool exists.
+
+To avoid stale client catalogs becoming a recurring deployment blocker, enum-like request selectors (`capability`, `task`, `mode`, and AgentCore `readOperation`) use stable string-shaped MCP input fields and are validated fail-closed against the current server allowlists. New allowlisted values therefore do not require changing the published JSON-schema shape. `execution_status` publishes the current supported values and the control-plane contract revision/fingerprint. `/health` publishes the same contract revision/fingerprint plus the stable tool names for cache-mismatch diagnosis even when a client cannot call the newer control-plane tools.
+
+The MCP SDK still advertises `tools.listChanged=true` and sends `notifications/tools/list_changed`; clients should refresh on that notification. The stable contract is the compatibility fallback for clients that retain an older tool catalog until reconnect. Any future incompatible schema change requires an explicit contract-revision change and a migration window; prefer server-side validation or a versioned payload over adding/removing control-plane tools.
