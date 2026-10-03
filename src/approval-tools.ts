@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
 import type { ApprovalBroker } from "./approval-broker.js";
+import { assertBoundedExecutableConfigured } from "./bounded-executable.js";
 import {
   CapabilityPolicyEngine,
   type Capability,
@@ -90,6 +91,7 @@ export function registerApprovalTools(
         if (commandArgs?.length && !commandExecutable) {
           throw new Error("commandArgs requires commandExecutable");
         }
+        assertBoundedExecutableConfigured(config, commandExecutable);
         const request: CapabilityRequest = {
           capability: capability as Capability,
           subjectId: subjectId(extra),
@@ -100,7 +102,7 @@ export function registerApprovalTools(
           networkTarget,
           reason,
         };
-        const profile = getPolicyProfile(profileId);
+        const profile = getPolicyProfile(profileId, config.capabilityHostRoots);
         const engine = new CapabilityPolicyEngine(profile, broker.activeGrants());
         const decision = engine.evaluate(request);
 
