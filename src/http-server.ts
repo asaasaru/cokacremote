@@ -9,6 +9,7 @@ import {
 } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import express, { type Request, type Response } from "express";
 
+import { registerAgentCoreRoutes } from "./agentcore-http.js";
 import { registerApprovalRoutes } from "./approval-http.js";
 import { registerBackendHealthRoutes } from "./backend-health-http.js";
 import { createBearerAuth, createHostValidation } from "./auth.js";
@@ -16,6 +17,12 @@ import type { AppConfig } from "./config.js";
 import { errorMessage } from "./errors.js";
 import { createMcpServer, type McpServices } from "./mcp-server.js";
 import { OAUTH_SCOPES, RemoteDevOAuthProvider } from "./oauth.js";
+import {
+  CONTROL_PLANE_CONTRACT_FINGERPRINT,
+  CONTROL_PLANE_CONTRACT_REVISION,
+  CONTROL_PLANE_SCHEMA_COMPATIBILITY,
+  STABLE_CONTROL_PLANE_TOOLS,
+} from "./tool-contract.js";
 
 interface ActiveRequest {
   server: ReturnType<typeof createMcpServer>;
@@ -101,6 +108,13 @@ export async function startHttpServer(
   app.use(createHostValidation(config));
   registerApprovalRoutes(app, config, services.approvalBroker);
   registerBackendHealthRoutes(app, config, services.health, services.circuits);
+  registerAgentCoreRoutes(
+    app,
+    config,
+    services.agentcoreBroker,
+    services.health,
+    services.circuits,
+  );
 
   const activeRequests = new Set<ActiveRequest>();
   let activeMcpRequests = 0;
@@ -158,6 +172,14 @@ export async function startHttpServer(
       unrestrictedHostAccess: config.capabilityMode === "legacy",
       oauthEnabled: config.oauthEnabled,
       activeCapabilityGrants: services.approvalBroker.activeGrants().length,
+      executionRouterReady: true,
+      agentcoreBrokerReady: services.agentcoreBroker.enabled(),
+      registeredAgentCoreDevices: services.agentcoreBroker.activeDevices().length,
+      controlPlaneContractRevision: CONTROL_PLANE_CONTRACT_REVISION,
+      controlPlaneContractFingerprint: CONTROL_PLANE_CONTRACT_FINGERPRINT,
+      stableControlPlaneTools: [...STABLE_CONTROL_PLANE_TOOLS],
+      controlPlaneSchemaCompatibility: CONTROL_PLANE_SCHEMA_COMPATIBILITY,
+      toolListChangedSupported: false,
     });
   });
 
@@ -230,6 +252,7 @@ export async function startHttpServer(
 
   const cleanupInterval = setInterval(() => {
     services.processManager.prune();
+    services.agentcoreBroker.prune();
   }, Math.min(config.processRetentionMs, 60_000));
   cleanupInterval.unref();
 

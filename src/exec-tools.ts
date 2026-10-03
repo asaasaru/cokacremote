@@ -1,6 +1,9 @@
+import path from "node:path";
+
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
+import { resolveBoundedExecutable } from "./bounded-executable.js";
 import { CapabilityGate, type ToolAuthExtra } from "./capability-gate.js";
 import type { AppConfig } from "./config.js";
 import { FileService } from "./file-service.js";
@@ -16,9 +19,8 @@ function processResult(result: Awaited<ReturnType<ProcessManager["read"]>>): Rec
   };
 }
 
-function boundedProcessEnvironment(): Record<string, string> {
+function boundedProcessEnvironment(config: AppConfig): Record<string, string> {
   const allowedKeys = [
-    "PATH",
     "HOME",
     "TMPDIR",
     "TMP",
@@ -41,6 +43,10 @@ function boundedProcessEnvironment(): Record<string, string> {
       env[key] = value;
     }
   }
+  const pinnedDirectories = [...new Set(
+    Object.values(config.boundedExecutablePaths).map((value) => path.dirname(value)),
+  )];
+  env.PATH = pinnedDirectories.join(path.delimiter);
   return env;
 }
 
@@ -285,14 +291,17 @@ export function registerExecTools(
         const cwd = capabilityGate.isBounded()
           ? fileService.resolveForPolicy(".", workdir)
           : fileService.resolve(".", workdir);
-        capabilityGate.authorizeExec(extra as ToolAuthExtra, cwd, { executable, args });
         const bounded = capabilityGate.isBounded();
+        const spawnExecutable = bounded
+          ? resolveBoundedExecutable(config, executable)
+          : executable;
+        capabilityGate.authorizeExec(extra as ToolAuthExtra, cwd, { executable, args });
         const sessionId = processManager.start({
-          executable,
+          executable: spawnExecutable,
           args,
           commandForDisplay: [executable, ...args].join(" "),
           cwd,
-          env: bounded ? boundedProcessEnvironment() : env,
+          env: bounded ? boundedProcessEnvironment(config) : env,
           inheritEnv: !bounded,
           timeoutMs,
           stdin,

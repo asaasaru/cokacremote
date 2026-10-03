@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import { AgentCoreBroker } from "./agentcore-broker.js";
 import { ApprovalBroker } from "./approval-broker.js";
 import { registerApprovalTools } from "./approval-tools.js";
 import { BackendHealthRegistry } from "./backend-health.js";
@@ -18,6 +19,7 @@ export interface McpServices {
   processManager: ProcessManager;
   fileService: FileService;
   approvalBroker: ApprovalBroker;
+  agentcoreBroker: AgentCoreBroker;
   health: BackendHealthRegistry;
   circuits: BackendCircuitBreaker;
   fallback: FallbackPolicy;
@@ -29,6 +31,11 @@ export function createServices(config: AppConfig): McpServices {
   const health = new BackendHealthRegistry();
   health.markHealthy("coka_local");
   const approvalBroker = new ApprovalBroker();
+  const agentcoreBroker = new AgentCoreBroker(
+    new Set(Object.keys(config.agentcoreDeviceKeys)),
+    config.agentcoreDeviceStaleMs,
+    config.agentcoreJobTtlMs,
+  );
   const capabilityGate = new CapabilityGate(config, approvalBroker);
   return {
     processManager: new ProcessManager({
@@ -44,6 +51,7 @@ export function createServices(config: AppConfig): McpServices {
       maxOutputBytes: config.maxOutputBytes,
     }),
     approvalBroker,
+    agentcoreBroker,
     health,
     circuits: new BackendCircuitBreaker(),
     fallback: new FallbackPolicy(),
@@ -71,6 +79,7 @@ export function createMcpServer(config: AppConfig, services: McpServices): McpSe
     circuits: services.circuits,
     fallback: services.fallback,
     recovery: services.recovery,
+    agentcoreBroker: services.agentcoreBroker,
   });
   registerExecTools(
     server,

@@ -67,6 +67,15 @@ export function registerApprovalRoutes(
 ): void {
   const form = express.urlencoded({ extended: false, limit: "16kb" });
 
+  app.use("/approvals", (_request, response, next) => {
+    response.set({
+      "Cache-Control": "no-store, no-cache, must-revalidate, private",
+      Pragma: "no-cache",
+      Expires: "0",
+    });
+    next();
+  });
+
   app.get("/approvals/:requestId", (request, response) => {
     const requestId = request.params.requestId;
     const summary = requestSummary(broker, requestId);
@@ -124,7 +133,16 @@ export function registerApprovalRoutes(
       return;
     }
 
-    if (request.body?.decision === "deny") {
+    const decision = request.body?.decision;
+    if (decision !== "approve" && decision !== "deny") {
+      response.status(400).type("html").send(page(
+        "승인 실패",
+        "<p class=\"error\">알 수 없는 승인 결정입니다. 요청은 승인되지 않았습니다.</p>",
+      ));
+      return;
+    }
+
+    if (decision === "deny") {
       broker.denyFromTrustedChannel(requestId);
       console.log(JSON.stringify({
         event: "capability_approval",

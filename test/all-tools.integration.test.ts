@@ -196,6 +196,14 @@ describe.sequential("all registered MCP tools", () => {
   it("publishes the exact tool inventory and annotations", async () => {
     const listed = await client.listTools();
     expect(listed.tools.map((tool) => tool.name).sort()).toEqual([...ALL_TOOLS]);
+    const executionRequest = listed.tools.find((tool) => tool.name === "execution_request");
+    const requestProperties = executionRequest?.inputSchema.properties as
+      | Record<string, Record<string, unknown>>
+      | undefined;
+    for (const field of ["capability", "task", "mode", "readOperation"]) {
+      expect(requestProperties?.[field]?.type, `${field} must keep a stable string-shaped schema`).toBe("string");
+      expect(requestProperties?.[field]?.enum, `${field} allowlist must be server-side`).toBeUndefined();
+    }
     for (const tool of listed.tools) {
       expect(tool.inputSchema.type).toBe("object");
       const [readOnlyHint, destructiveHint, idempotentHint, openWorldHint] =
@@ -211,6 +219,12 @@ describe.sequential("all registered MCP tools", () => {
 
   it("reports backend status and plans policy-safe routes without executing", async () => {
     const status = await callOk("execution_status");
+    expect(status.contract).toMatchObject({
+      revision: "2026-10-03.2",
+      stableTools: ["execution_request", "execution_status", "execution_route", "execution_recovery"],
+      compatibility: "stable-tool-names-server-validated-values",
+    });
+    expect(String((status.contract as { fingerprint?: unknown }).fingerprint)).toMatch(/^[a-f0-9]{64}$/);
     expect(status.backends).toEqual(expect.arrayContaining([
       expect.objectContaining({ backend: "coka_local", status: "HEALTHY" }),
       expect.objectContaining({ backend: "agentcore.antigravity", status: "UNKNOWN" }),
@@ -972,6 +986,18 @@ describe.sequential("all registered MCP tools", () => {
       force: true,
     })).toMatchObject({ removed: true });
   }, 30_000);
+
+  it("rejects unsupported stable selector values server-side", async () => {
+    const error = await callError("execution_request", {
+      profileId: "pine-tvauto",
+      projectId: "vic-tvauto",
+      capability: "workspace.read",
+      path: "/work/sandbox",
+      task: "project.read",
+      mode: "future-unknown-mode",
+    });
+    expect(error).toContain("Unsupported mode");
+  });
 
   it("exercises every published tool through MCP", () => {
     expect([...exercised].sort()).toEqual([...ALL_TOOLS]);
