@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
 import type { AgentCoreBackend, AgentCoreBroker } from "./agentcore-broker.js";
+import { assertBoundedExecutableConfigured } from "./bounded-executable.js";
 import type { ApprovalBroker } from "./approval-broker.js";
 import {
   CapabilityPolicyEngine,
@@ -222,6 +223,7 @@ export function registerExecutionTools(
         if (commandArgs?.length && !commandExecutable) {
           throw new Error("commandArgs requires commandExecutable");
         }
+        assertBoundedExecutableConfigured(config, commandExecutable);
         const validatedCapability = parseSupportedValue(capabilitySchema, capability, "capability") as Capability;
         const validatedTask = parseSupportedValue(taskSchema, task, "task") as ExecutionTaskKind;
         const validatedMode = parseSupportedValue(modeSchema, mode, "mode") as ExecutionMode;
@@ -237,7 +239,7 @@ export function registerExecutionTools(
             : undefined,
           networkTarget,
         };
-        const profile = getPolicyProfile(profileId);
+        const profile = getPolicyProfile(profileId, config.capabilityHostRoots);
         const policy = new CapabilityPolicyEngine(profile, broker.activeGrants()).evaluatePreview(request);
         const router = new ExecutionRouter(
           services.health,
@@ -327,6 +329,7 @@ export function registerExecutionTools(
         if (commandArgs?.length && !commandExecutable) {
           throw new Error("commandArgs requires commandExecutable");
         }
+        assertBoundedExecutableConfigured(config, commandExecutable);
         const validatedCapability = parseSupportedValue(capabilitySchema, capability, "capability") as Capability;
         const validatedTask = parseSupportedValue(taskSchema, task, "task") as ExecutionTaskKind;
         const validatedMode = parseSupportedValue(modeSchema, mode, "mode") as ExecutionMode;
@@ -365,7 +368,7 @@ export function registerExecutionTools(
           reason,
         };
 
-        const profile = getPolicyProfile(profileId);
+        const profile = getPolicyProfile(profileId, config.capabilityHostRoots);
         const policyEngine = new CapabilityPolicyEngine(
           profile,
           broker.activeGrants(),
