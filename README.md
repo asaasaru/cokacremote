@@ -109,7 +109,7 @@ The MCP transport is stateless, but long-running command sessions are kept in me
 
 Relative paths are resolved from `MCP_DEFAULT_CWD`, while absolute paths and `~/...` paths are also allowed. Uploads and downloads use base64 chunk transfer with `nextOffset`.
 
-The server provides 20 tools in total. `remove_path` permanently deletes targets without using a trash folder, and `apply_patch` uses the host's `git apply --unsafe-paths`.
+The server provides 28 tools in total. `remove_path` permanently deletes targets without using a trash folder, and `apply_patch` uses the host's `git apply --unsafe-paths`.
 
 ### Tool safety and authentication metadata
 
@@ -191,7 +191,7 @@ When enabled, the server provides:
 - `resource` audience validation
 - Access tokens, replay-detecting refresh token rotation, and grant-level token revocation
 
-OAuth uses a single `mcp:tools` scope. Enter the `MCP_OAUTH_APPROVAL_KEY` value on the approval page shown when authorizing an OAuth client connection. For OAuth-only deployments, it is recommended to leave `MCP_AUTH_TOKEN` empty so there is no permanent static Bearer bypass path. For backward compatibility, `MCP_AUTH_TOKEN` is used as the approval key when no dedicated approval key is configured, but keeping the two values separate is safer. Treat both values like root credentials. Registered clients, client secrets, and token hashes are stored in `MCP_OAUTH_STATE_FILE` with mode `600`.
+OAuth uses a single `mcp:tools` scope. Enter the dedicated `MCP_OAUTH_APPROVAL_KEY` value on the approval page shown when authorizing an OAuth client connection. OAuth startup fails closed if that key is missing, and when static Bearer authentication is also enabled the approval key must be different from `MCP_AUTH_TOKEN`; there is no fallback from the operator approval key to the general authentication token. For OAuth-only deployments, leave `MCP_AUTH_TOKEN` empty so there is no permanent static Bearer bypass path. Treat both values like root credentials. Registered clients, client secrets, and token hashes are stored in `MCP_OAUTH_STATE_FILE` with mode `600`.
 
 OAuth-related HTTP routes:
 
@@ -342,14 +342,14 @@ npm run build
 The default tests use a real Streamable HTTP MCP client and cover:
 
 - Bearer authentication, stateless request processing, and request tracing headers
-- Success paths, failure paths, and input boundary cases for all 20 tools
+- Success paths, failure paths, and input boundary cases for all 28 tools
 - Interactive stdin, output pagination, timeouts, termination, and completed-process retention
 - UTF-8 character boundaries, strict base64 validation, file modes, and copy/move conflicts
 - Unified diff validation, application, reverse application, and 3-way application
 
 ### Full E2E verification against a running external MCP server
 
-From a separate source checkout with development dependencies installed, you can verify all 20 tools against a real HTTPS endpoint:
+From a separate source checkout with development dependencies installed, you can verify all 28 tools against a real HTTPS endpoint:
 
 ```bash
 MCP_E2E_URL='https://mcp.example.com/mcp' \
@@ -373,13 +373,15 @@ This verification executes real commands on the target server and creates, modif
 | `MCP_AUTH_TOKEN` | none | Optional static Bearer token |
 | `MCP_ALLOW_NO_AUTH` | `false` | Allow startup without authentication |
 | `MCP_OAUTH_ENABLED` | `false` | Enable the built-in OAuth 2.1/DCR authorization server |
-| `MCP_OAUTH_APPROVAL_KEY` | `MCP_AUTH_TOKEN` | Dedicated key for the OAuth connection approval page |
+| `MCP_OAUTH_APPROVAL_KEY` | required when OAuth is enabled | Dedicated operator approval key; must not fall back to or equal `MCP_AUTH_TOKEN` when both are configured |
 | `MCP_OAUTH_ISSUER` | `MCP_PUBLIC_URL` | OAuth issuer URL |
 | `MCP_OAUTH_RESOURCE` | `<MCP_PUBLIC_URL><MCP_ENDPOINT>` | MCP resource audience |
 | `MCP_OAUTH_STATE_FILE` | inside working directory | Stores registered clients and token hashes |
 | `MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS` | `3600` | OAuth access token lifetime |
 | `MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000` | OAuth refresh token lifetime |
 | `MCP_OAUTH_AUTHORIZATION_CODE_TTL_SECONDS` | `300` | One-time authorization code lifetime |
+| `MCP_CAPABILITY_HOST_ROOTS` | none | Comma-separated absolute host roots permitted to enter the `coka-base` human-approval flow; requests outside these roots are denied |
+| `MCP_BOUNDED_EXECUTABLE_PATHS_JSON` | `{}` | JSON map from approved logical executable names to operator-pinned absolute binaries; bounded execution fails closed when a command is not pinned |
 | `MCP_DEFAULT_CWD` | server startup directory | Base directory for relative paths |
 | `MCP_DEFAULT_SHELL` | `$SHELL` or `/bin/bash` | Default shell for `exec_command` |
 | `MCP_MAX_REQUEST_BODY` | `8mb` | HTTP request body size limit |
@@ -401,7 +403,7 @@ This verification executes real commands on the target server and creates, modif
 | `src/file-tools.ts` | Filesystem tools and input schemas |
 | `src/oauth.ts` | DCR, PKCE, token issuance/refresh/revocation, and approval UI |
 | `deploy/` | systemd, environment-file, and Nginx examples |
-| `test/all-tools.integration.test.ts` | E2E tests for all 20 tools and external endpoints |
+| `test/all-tools.integration.test.ts` | E2E tests for all 28 tools and external endpoints |
 | `test/` | Configuration, file, process, MCP, and OAuth unit/integration tests |
 
 ## License

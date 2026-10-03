@@ -12,11 +12,6 @@ export const baseCokaProfile: PolicyProfile = {
   ],
   approvalRequired: [
     { capability: "workspace.exec", paths: [SANDBOX], commands: EXECUTABLES },
-    { capability: "host.read" },
-    { capability: "host.write" },
-    { capability: "host.exec", commands: EXECUTABLES },
-    { capability: "package.install" },
-    { capability: "destructive.fs" },
   ],
   hardDeny: [
     { capability: "real_trading" },
@@ -56,7 +51,23 @@ const PROFILES = new Map<string, PolicyProfile>([
   [pineTvautoProfile.id, pineTvautoProfile],
 ]);
 
-export function getPolicyProfile(profileId: string): PolicyProfile {
+export function getPolicyProfile(
+  profileId: string,
+  capabilityHostRoots: string[] = [],
+): PolicyProfile {
+  if (profileId === baseCokaProfile.id) {
+    const hostTemplates = pineTvautoProfile.approvalRequired.filter(
+      (rule) => rule.paths?.includes(TVAUTO),
+    );
+    const hostRules = capabilityHostRoots.flatMap((root) =>
+      hostTemplates.map((rule) => ({ ...rule, paths: [root] })),
+    );
+    return {
+      ...baseCokaProfile,
+      approvalRequired: [...baseCokaProfile.approvalRequired, ...hostRules],
+    };
+  }
+
   const profile = PROFILES.get(profileId);
   if (!profile) {
     throw new Error(`Unknown policy profile: ${profileId}`);

@@ -273,6 +273,33 @@ describe("ApprovalBroker", () => {
     expect(broker.getPending(pending.requestId)?.status).toBe("approved");
   });
 
+  it("marks pending approvals expired on status reads and rejects late decisions", () => {
+    const broker = new ApprovalBroker(1_000, 600_000, 20);
+    const pending = broker.requestApproval({
+      capability: "host.read",
+      subjectId,
+      providerLabel,
+      projectId,
+      path: "/Users/vicmac/DevMac/Biz/TVauto/config.yaml",
+    }, now);
+
+    expect(broker.getPending(pending.requestId, now + 999)?.status).toBe("pending");
+    expect(broker.getPending(pending.requestId, now + 1_000)?.status).toBe("expired");
+    expect(() => broker.denyFromTrustedChannel(pending.requestId, now + 1_001))
+      .toThrow("Approval request expired");
+    expect(() => broker.approveFromTrustedChannel(pending.requestId, {
+      approvedBy: "operator",
+      approvalChannel: "local-ui",
+      subjectId,
+      providerLabel,
+      projectId,
+      capabilities: ["host.read"],
+      paths: ["/Users/vicmac/DevMac/Biz/TVauto/config.yaml"],
+      ttlMs: 1_000,
+      maxUses: 1,
+    }, now + 1_001)).toThrow(/expired/);
+  });
+
   it("cannot approve a request for a different OAuth client or project", () => {
     const broker = new ApprovalBroker();
     const pending = broker.requestApproval({

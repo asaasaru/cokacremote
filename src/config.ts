@@ -20,6 +20,8 @@ export interface AppConfig {
   capabilityMode: CapabilityMode;
   capabilityProfileId: string;
   capabilityProjectId: string;
+  capabilityHostRoots: string[];
+  boundedExecutablePaths: Record<string, string>;
   oauthIssuerUrl: string | undefined;
   oauthResourceUrl: string | undefined;
   oauthStateFile: string;
@@ -101,6 +103,49 @@ function parseAgentCoreDeviceKeys(value: string | undefined): Record<string, str
   return result;
 }
 
+function parseAbsolutePathList(value: string | undefined, name: string): string[] {
+  if (!value?.trim()) {
+    return [];
+  }
+  const roots = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const unique = [...new Set(roots.map((root) => path.normalize(root)))];
+  for (const root of unique) {
+    if (!path.isAbsolute(root)) {
+      throw new Error(`${name} entries must be absolute paths`);
+    }
+  }
+  return unique;
+}
+
+function parseBoundedExecutablePaths(value: string | undefined): Record<string, string> {
+  if (!value?.trim()) {
+    return {};
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("MCP_BOUNDED_EXECUTABLE_PATHS_JSON must be valid JSON");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("MCP_BOUNDED_EXECUTABLE_PATHS_JSON must be a JSON object");
+  }
+  const result: Record<string, string> = {};
+  for (const [name, executablePath] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!/^[A-Za-z0-9._+-]+$/.test(name)) {
+      throw new Error("MCP_BOUNDED_EXECUTABLE_PATHS_JSON contains an invalid executable name");
+    }
+    if (typeof executablePath !== "string" || !path.isAbsolute(executablePath.trim())) {
+      throw new Error("MCP_BOUNDED_EXECUTABLE_PATHS_JSON values must be absolute paths");
+    }
+    result[name] = path.normalize(executablePath.trim());
+  }
+  return result;
+}
+
 function normalizeEndpoint(value: string | undefined): string {
   const endpoint = value?.trim() || "/mcp";
   if (!endpoint.startsWith("/")) {
@@ -143,7 +188,7 @@ export function loadConfig(
   const authToken = env.MCP_AUTH_TOKEN?.trim() || undefined;
   const oauthEnabled = parseBoolean(env.MCP_OAUTH_ENABLED, false);
   const oauthApprovalKey = oauthEnabled
-    ? env.MCP_OAUTH_APPROVAL_KEY?.trim() || authToken
+    ? env.MCP_OAUTH_APPROVAL_KEY?.trim() || undefined
     : undefined;
   if (!allowNoAuth && !authToken && !oauthEnabled) {
     throw new Error(
@@ -152,7 +197,12 @@ export function loadConfig(
   }
   if (oauthEnabled && !oauthApprovalKey) {
     throw new Error(
-      "MCP_OAUTH_APPROVAL_KEY (or MCP_AUTH_TOKEN for backward compatibility) is required when OAuth is enabled",
+      "MCP_OAUTH_APPROVAL_KEY is required when OAuth is enabled; the operator approval key must not fall back to MCP_AUTH_TOKEN",
+    );
+  }
+  if (oauthEnabled && authToken && oauthApprovalKey === authToken) {
+    throw new Error(
+      "MCP_OAUTH_APPROVAL_KEY must be different from MCP_AUTH_TOKEN",
     );
   }
 
@@ -216,6 +266,8 @@ export function loadConfig(
     capabilityMode,
     capabilityProfileId,
     capabilityProjectId,
+    capabilityHostRoots: parseAbsolutePathList(env.MCP_CAPABILITY_HOST_ROOTS, "MCP_CAPABILITY_HOST_ROOTS"),
+    boundedExecutablePaths: parseBoundedExecutablePaths(env.MCP_BOUNDED_EXECUTABLE_PATHS_JSON),
     oauthIssuerUrl,
     oauthResourceUrl,
     oauthStateFile: path.resolve(

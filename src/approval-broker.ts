@@ -122,10 +122,13 @@ export class ApprovalBroker {
     return grant;
   }
 
-  denyFromTrustedChannel(requestId: string): PendingApproval {
-    const pending = this.pending.get(requestId);
+  denyFromTrustedChannel(requestId: string, now = Date.now()): PendingApproval {
+    const pending = this.getPending(requestId, now);
     if (!pending) {
       throw new Error("Unknown approval request");
+    }
+    if (pending.status === "expired") {
+      throw new Error("Approval request expired");
     }
     if (pending.status !== "pending") {
       throw new Error(`Approval request is already ${pending.status}`);
@@ -162,8 +165,12 @@ export class ApprovalBroker {
     return this.activeGrants(now).filter((grant) => grant.subjectId === subjectId);
   }
 
-  getPending(requestId: string): PendingApproval | undefined {
-    return this.pending.get(requestId);
+  getPending(requestId: string, now = Date.now()): PendingApproval | undefined {
+    const pending = this.pending.get(requestId);
+    if (pending && pending.status === "pending" && pending.expiresAt <= now) {
+      pending.status = "expired";
+    }
+    return pending;
   }
 
   getGrant(grantId: string): CapabilityGrant | undefined {

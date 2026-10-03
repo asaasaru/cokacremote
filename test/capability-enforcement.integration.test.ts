@@ -42,6 +42,8 @@ describe.sequential("bounded capability enforcement", () => {
         MCP_CAPABILITY_MODE: "bounded",
         MCP_CAPABILITY_PROFILE: "coka-base",
         MCP_CAPABILITY_PROJECT: "cokacremote-e2e",
+        MCP_CAPABILITY_HOST_ROOTS: root,
+        MCP_BOUNDED_EXECUTABLE_PATHS_JSON: JSON.stringify({ node: process.execPath }),
       },
       root,
     );
@@ -330,6 +332,18 @@ describe.sequential("bounded capability enforcement", () => {
     expect(services.approvalBroker.getGrant(grantId)?.uses).toBe(0);
   });
 
+  it("rejects executable approvals when no absolute executable pin exists", async () => {
+    expect(await callError("request_capability", {
+      profileId: "coka-base",
+      projectId: "cokacremote-e2e",
+      capability: "host.exec",
+      path: root,
+      commandExecutable: "git",
+      commandArgs: ["--version"],
+      reason: "bounded executable pin regression test",
+    })).toContain("not pinned in MCP_BOUNDED_EXECUTABLE_PATHS_JSON");
+  });
+
   it("binds exec_argv to exact cwd and argv while route preview remains grant-neutral", async () => {
     const exactArgs = ["-e", "process.stdout.write('bounded-exec-ok')"];
     const grantId = await requestAndApprove(
@@ -387,7 +401,7 @@ describe.sequential("bounded capability enforcement", () => {
       executable: "node",
       args: exactArgs,
       workdir: `${root}-outside`,
-    })).toContain("Capability approval required");
+    })).toContain("Capability denied");
     expect(services.approvalBroker.getGrant(grantId)?.uses).toBe(1);
   });
 });

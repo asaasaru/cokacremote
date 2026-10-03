@@ -46,20 +46,18 @@ Hard deny even with an attempted grant:
 - real trading/order placement
 - unrestricted host access
 
-## Next integration step
+## Current source enforcement and deployment gate
 
-The live coka deployment currently has stronger container separation than this repository. Do not deploy this repository over the live stack.
+As of the 2026-10-03.2 control-plane contract, the source tree enforces the approval boundary directly:
 
-Instead:
+1. OAuth requires a dedicated `MCP_OAUTH_APPROVAL_KEY`; it never falls back to `MCP_AUTH_TOKEN`, and the two values must differ when both are configured.
+2. The approval form accepts only the exact decisions `approve` and `deny`; unknown values fail closed with no grant.
+3. Approval pages are sent with `no-store`/no-cache headers.
+4. Pending requests are transitioned to `expired` when read after their TTL and cannot be approved or denied afterward.
+5. The generic `coka-base` profile creates host approval rules only inside operator-configured `MCP_CAPABILITY_HOST_ROOTS`; outside those roots the policy is default deny.
+6. Bounded command execution requires a logical-name to absolute-binary mapping in `MCP_BOUNDED_EXECUTABLE_PATHS_JSON`; unpinned executable names are rejected before a grant can be consumed.
 
-1. instantiate the policy engine in the gateway or host-bridge boundary;
-2. create pending approval requests when a protected action is requested;
-3. expose approval only on a trusted operator surface unavailable to MCP tools;
-4. pass the resulting bounded grant to the host bridge;
-5. enforce the grant again at the host bridge before execution;
-6. append an immutable audit event containing request ID, grant ID, project, provider, capability, bounded target, decision, timestamp, and outcome.
-
-This keeps approval as a narrowly scoped capability, not a global bypass.
+Deployment is complete only when production environment values are set, the service is restarted from this revision, `/health` reports the expected control-plane contract, and the bounded regression suite passes. Approval remains a narrowly scoped capability, never a global bypass.
 
 
 ## Host bridge execution ticket
@@ -93,4 +91,4 @@ These host-side checks remain mandatory even when the gateway already validated 
 
 ## Live rollout hardening
 
-The live capability approval surface must use a human-only operator key unavailable to MCP tools, the executor, project files, or the model. Approval responses must be non-cacheable and approval attempts should be rate-limited at the hardened gateway. These live-stack controls are deployment requirements and should be implemented in the hardened source rather than by replacing that stack with this prototype repository.
+The live capability approval surface must use a human-only operator key unavailable to MCP tools, the executor, project files, or the model. The current source enforces a dedicated approval key, strict approve/deny parsing, expiry refresh, no-store approval responses, explicit host-root bounds, and absolute executable pinning. Approval attempts should remain rate-limited at the hardened gateway. Any deployment that omits `MCP_CAPABILITY_HOST_ROOTS` or the required entries in `MCP_BOUNDED_EXECUTABLE_PATHS_JSON` must fail closed rather than widening access.

@@ -220,8 +220,8 @@ describe.sequential("all registered MCP tools", () => {
   it("reports backend status and plans policy-safe routes without executing", async () => {
     const status = await callOk("execution_status");
     expect(status.contract).toMatchObject({
-      revision: "2026-10-02.1",
-      stableTools: ["execution_request", "execution_status"],
+      revision: "2026-10-03.2",
+      stableTools: ["execution_request", "execution_status", "execution_route", "execution_recovery"],
       compatibility: "stable-tool-names-server-validated-values",
     });
     expect(String((status.contract as { fingerprint?: unknown }).fingerprint)).toMatch(/^[a-f0-9]{64}$/);
